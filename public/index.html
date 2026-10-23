@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Flip 7 - 卡牌游戏 (多人联机 & 本地同屏)</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Confetti Canvas -->
+  <canvas id="confetti-canvas"></canvas>
+
+  <div id="app">
+    <!-- Header -->
+    <header class="game-header">
+      <div class="logo-area">
+        <div class="logo-badge">FLIP <span class="seven">7</span></div>
+        <span class="tagline" data-i18n="tagline">风靡全球的极限运气博弈卡牌游戏</span>
+      </div>
+      <div class="header-actions">
+        <button id="btn-theme-toggle" class="icon-btn" title="选择主题风格 / Choose Theme">🎨 <span>主题风格</span></button>
+        <button id="btn-lang-toggle" class="icon-btn" title="切换语言 / Switch Language">🌐 English</button>
+        <button id="btn-sound-toggle" class="icon-btn" data-i18n-title="soundTitle" title="声音开关">🔊</button>
+        <button id="btn-rules" class="icon-btn" data-i18n="rulesBtn" title="游戏规则">📖 规则</button>
+      </div>
+    </header>
+
+    <!-- Main Screens Container -->
+    <main class="main-content">
+
+      <!-- ================= 1. HOME SCREEN ================= -->
+      <section id="screen-home" class="screen active">
+        <div class="hero-card">
+          <div class="card-fan">
+            <div class="demo-card card-gold">7</div>
+            <div class="demo-card card-purple">x2</div>
+            <div class="demo-card card-red">❤️</div>
+            <div class="demo-card card-cyan">❄️</div>
+            <div class="demo-card card-orange">⚡</div>
+          </div>
+          <h1 data-i18n="welcomeTitle">欢迎来到 Flip 7！</h1>
+          <p class="hero-desc" data-i18n="welcomeDesc">
+            逐张翻牌，切忌翻出相同数字！在爆牌前锁定收益，或放手一搏翻出<strong>7张不同数字</strong>触发超级翻倍大奖！
+          </p>
+
+          <!-- Profile Setup -->
+          <div class="profile-setup">
+            <label for="player-name-input" data-i18n="nicknameLabel">你的昵称</label>
+            <div class="profile-input-group">
+              <div class="avatar-select" id="avatar-trigger" data-i18n-title="changeAvatar" title="更换头像">
+                <span id="selected-avatar">🦊</span>
+              </div>
+              <input type="text" id="player-name-input" maxlength="15" placeholder="Player" value="Player">
+            </div>
+            <!-- Avatar Picker Dropdown -->
+            <div id="avatar-picker" class="avatar-picker hidden">
+              <span class="avatar-opt">🦊</span>
+              <span class="avatar-opt">🦁</span>
+              <span class="avatar-opt">🐼</span>
+              <span class="avatar-opt">🦅</span>
+              <span class="avatar-opt">🐉</span>
+              <span class="avatar-opt">🤖</span>
+              <span class="avatar-opt">🎲</span>
+              <span class="avatar-opt">💎</span>
+              <span class="avatar-opt">🚀</span>
+              <span class="avatar-opt">👑</span>
+              <span class="avatar-opt">🍀</span>
+              <span class="avatar-opt">🔥</span>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="lobby-actions">
+            <!-- Create Room -->
+            <div class="action-card create-box">
+              <h3 data-i18n="createGameTitle">创建在线对战</h3>
+              <p data-i18n="createGameDesc">开设专属牌桌与好友联机，或加入智能AI机器人</p>
+              <div class="target-score-picker">
+                <span data-i18n="targetScoreLabel">目标分数:</span>
+                <select id="create-target-score">
+                  <option value="100" data-i18n="ptsQuick">100 分 (快节奏)</option>
+                  <option value="150" data-i18n="ptsStandard">150 分 (标准模式)</option>
+                  <option value="200" selected data-i18n="ptsOfficial">200 分 (官方经典规则)</option>
+                </select>
+              </div>
+              <div class="target-score-picker" style="margin-top:0.5rem">
+                <span data-i18n="showOddsLabel">爆牌概率:</span>
+                <select id="create-show-odds">
+                  <option value="true" selected data-i18n="showOddsOn">显示 (实时概率 HUD)</option>
+                  <option value="false" data-i18n="showOddsOff">隐藏 (凭直觉与记牌)</option>
+                </select>
+              </div>
+              <button id="btn-create-room" class="btn btn-primary btn-lg" data-i18n="btnCreateRoom">✨ 创建房间</button>
+            </div>
+
+            <!-- Join Room -->
+            <div class="action-card join-box">
+              <h3 data-i18n="joinGameTitle">加入在线对战</h3>
+              <p data-i18n="joinGameDesc">输入4位房间代码即可立即进入牌桌</p>
+              <div class="join-input-group">
+                <input type="text" id="room-code-input" maxlength="4" data-i18n-placeholder="codePlaceholder" placeholder="代码" autocomplete="off" spellcheck="false">
+                <button id="btn-join-room" class="btn btn-secondary btn-lg" data-i18n="btnJoinRoom">进入房间</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Local & Solo CTAs -->
+          <div class="mode-cta-row">
+            <button id="btn-local-play-open" class="btn btn-local btn-lg" data-i18n="btnLocalPlay">👥 本地同屏多人对战 (同设备多人轮流玩)</button>
+            <button id="btn-solo-play" class="btn btn-outline" data-i18n="btnSoloPlay">🤖 快速单人练习 (你 vs 3个机器人)</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 2. LOCAL MULTIPLAYER SETUP SCREEN ================= -->
+      <section id="screen-local-setup" class="screen">
+        <div class="lobby-container local-setup-container">
+          <div class="local-setup-header">
+            <h2 data-i18n="localSetupTitle">本地同屏多人对战</h2>
+            <p data-i18n="localSetupDesc">在同一台电脑/手机/平板上与好友面对面轮流翻牌对决！无需联网也能玩！</p>
+          </div>
+
+          <div class="local-settings-bar">
+            <div class="target-score-picker">
+              <span data-i18n="targetScoreLabel">目标分数:</span>
+              <select id="local-target-score">
+                <option value="100" data-i18n="ptsQuick">100 分 (快节奏)</option>
+                <option value="150" data-i18n="ptsStandard">150 分 (标准模式)</option>
+                <option value="200" selected data-i18n="ptsOfficial">200 分 (官方经典规则)</option>
+              </select>
+            </div>
+            <div class="target-score-picker">
+              <span data-i18n="showOddsLabel">概率提示:</span>
+              <select id="local-show-odds">
+                <option value="true" selected data-i18n="showOddsOn">显示</option>
+                <option value="false" data-i18n="showOddsOff">隐藏</option>
+              </select>
+            </div>
+            <div class="local-add-btns">
+              <button id="btn-local-add-player" class="btn btn-secondary btn-sm" data-i18n="addPlayerBtn">+ 添加玩家</button>
+              <button id="btn-local-add-bot" class="btn btn-outline btn-sm" data-i18n="addBotBtn">+ 添加机器人</button>
+            </div>
+          </div>
+
+          <div class="local-players-list-wrap">
+            <div id="local-players-list" class="local-players-list">
+              <!-- Injected by JS: Player rows with avatar, name input, human/bot toggle -->
+            </div>
+          </div>
+
+          <div class="local-setup-footer">
+            <button id="btn-local-back" class="btn btn-outline" data-i18n="backBtn">⬅️ 返回主页</button>
+            <button id="btn-local-start" class="btn btn-primary btn-lg" data-i18n="startLocalBtn">🚀 开始本地对战</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 3. ONLINE ROOM LOBBY SCREEN ================= -->
+      <section id="screen-room-lobby" class="screen">
+        <div class="lobby-container">
+          <div class="lobby-header-bar">
+            <div class="room-info-pill">
+              <span class="label" data-i18n="roomCodeLabel">房间代码:</span>
+              <span id="lobby-room-code" class="code-display">----</span>
+              <button id="btn-copy-code" class="btn-tiny" data-i18n="copyCodeBtn" title="复制房间代码">📋 复制卡号</button>
+              <button id="btn-copy-link" class="btn-tiny" data-i18n="copyLinkBtn" title="复制邀请链接">🔗 复制链接</button>
+            </div>
+            <div class="target-info-pill">
+              <span data-i18n="goalLabel">目标:</span> <strong id="lobby-target-score">200</strong> pts
+            </div>
+            <div class="target-info-pill">
+              <span data-i18n="showOddsLabel">概率提示:</span> <strong id="lobby-show-odds">开启</strong>
+            </div>
+          </div>
+
+          <div class="lobby-table-preview">
+            <h3><span data-i18n="playersAtTable">当前牌桌玩家</span> (<span id="lobby-player-count">1</span>/10)</h3>
+            <div id="lobby-player-list" class="lobby-player-grid">
+              <!-- Player cards injected by JS -->
+            </div>
+          </div>
+
+          <div class="lobby-controls">
+            <div class="host-controls" id="host-controls">
+              <button id="btn-add-bot" class="btn btn-secondary" data-i18n="addAiBotBtn">🤖 + 添加AI机器人</button>
+              <button id="btn-start-game" class="btn btn-primary btn-lg" data-i18n="startMatchBtn">🚀 开始比赛</button>
+            </div>
+            <div class="guest-controls hidden" id="guest-controls">
+              <div class="waiting-spinner"></div>
+              <span data-i18n="waitingHost">等待房主开始比赛...</span>
+            </div>
+            <button id="btn-leave-room" class="btn btn-danger btn-sm" data-i18n="leaveTableBtn">离开牌桌</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 4. GAME PLAY TABLE SCREEN ================= -->
+      <section id="screen-game" class="screen">
+        <!-- Floating Reactions Bar -->
+        <div class="reactions-floating-bar" id="reactions-bar">
+          <button class="reaction-btn" data-emoji="🔥">🔥</button>
+          <button class="reaction-btn" data-emoji="🍀">🍀</button>
+          <button class="reaction-btn" data-emoji="😱">😱</button>
+          <button class="reaction-btn" data-emoji="😂">😂</button>
+          <button class="reaction-btn" data-emoji="👏">👏</button>
+          <button class="reaction-btn" data-emoji="💀">💀</button>
+        </div>
+
+        <div class="game-layout">
+          <!-- Main Felt Table -->
+          <div class="casino-table" id="casino-table">
+            
+            <!-- Table Status Banner -->
+            <div class="table-top-bar">
+              <div class="round-badge">
+                <span data-i18n="roundLabel">第</span> <span id="game-round-num">1</span> 轮
+              </div>
+              <div class="turn-prompt-badge" id="turn-prompt-badge">
+                <span data-i18n="currentTurnPrefix">当前行动: </span><strong id="turn-player-name">--</strong>
+              </div>
+              <div class="goal-badge">
+                <span data-i18n="targetLabel">目标: </span><span id="game-target-score">200</span> pts
+              </div>
+            </div>
+
+            <!-- Pass-and-play Handoff Banner (in local mode) -->
+            <div id="local-pass-banner" class="local-pass-banner hidden">
+              <span id="local-pass-text">👉 请将设备交给 Player 2</span>
+            </div>
+
+            <!-- Other Players Seats Around Table -->
+            <div class="other-players-arena" id="other-players-arena">
+              <!-- Dynamic Opponent Seat cards injected by JS -->
+            </div>
+
+            <!-- Table Center (Deck, Discard, Last Card Reveal) -->
+            <div class="table-center">
+              <div class="center-decks">
+                <!-- Draw Pile -->
+                <div class="deck-stack" id="draw-deck" title="摸牌堆剩余张数">
+                  <div class="card-back-stack"></div>
+                  <div class="card-back-stack"></div>
+                  <div class="deck-card-top card-back">
+                    <span class="deck-logo">FLIP 7</span>
+                    <span class="deck-count" id="deck-remaining-count">94</span>
+                  </div>
+                  <div class="deck-label" data-i18n="drawDeckLabel">摸牌堆</div>
+                </div>
+
+                <!-- Last Drawn Card Active Display -->
+                <div class="drawn-card-slot" id="drawn-card-slot">
+                  <div class="card-placeholder" id="last-card-placeholder">
+                    <span data-i18n="awaitingFlip">等待翻牌</span>
+                  </div>
+                  <div class="revealed-card-container hidden" id="revealed-card-container">
+                    <!-- 3D Card Face -->
+                  </div>
+                </div>
+
+                <!-- Discard Pile -->
+                <div class="deck-stack" id="discard-deck" title="弃牌堆">
+                  <div class="discard-placeholder">
+                    <span data-i18n="discardLabel">弃牌堆</span>
+                    <span class="discard-count" id="discard-count">0</span>
+                  </div>
+                  <div class="deck-label" data-i18n="discardLabel">弃牌堆</div>
+                </div>
+              </div>
+
+              <!-- Deck Counting & Bust Risk HUD -->
+              <div class="odds-hud" id="odds-hud">
+                <div class="hud-item">
+                  <span class="hud-title" data-i18n="bustRiskLabel">爆牌概率:</span>
+                  <span class="hud-value" id="hud-bust-pct">0%</span>
+                </div>
+                <div class="hud-item">
+                  <span class="hud-title" data-i18n="duplicatesLabel">牌库重复张数:</span>
+                  <span class="hud-value" id="hud-dup-count">0</span>
+                </div>
+                <div class="hud-item">
+                  <span class="hud-title" data-i18n="cardsLeftLabel">剩余牌数:</span>
+                  <span class="hud-value" id="hud-cards-left">94</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Current Active Player Board -->
+            <div class="my-player-board" id="my-player-board">
+              <div class="my-info-row">
+                <div class="my-avatar-area">
+                  <span class="my-avatar" id="my-avatar">🦊</span>
+                  <div class="my-name-col">
+                    <span class="my-name" id="my-name">玩家</span>
+                    <span class="my-status-pill" id="my-status-pill">进行中</span>
+                  </div>
+                </div>
+                
+                <div class="my-score-display">
+                  <div class="score-box">
+                    <span class="s-label" data-i18n="handScoreLabel">本轮手牌分</span>
+                    <span class="s-val" id="my-hand-score">0</span>
+                  </div>
+                  <div class="score-box highlight">
+                    <span class="s-label" data-i18n="totalScoreLabel">累计总分</span>
+                    <span class="s-val" id="my-total-score">0</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Hand Cards Display -->
+              <div class="my-hand-container">
+                <div class="hand-row">
+                  <span class="hand-sublabel"><span data-i18n="numbersLabel">数字牌</span> (<span id="my-number-count">0</span>/7):</span>
+                  <div class="cards-flex" id="my-number-cards">
+                    <span class="empty-hint" data-i18n="noNumbersYet">暂未翻出数字牌</span>
+                  </div>
+                </div>
+                <div class="hand-row">
+                  <span class="hand-sublabel" data-i18n="modifiersShieldLabel">加分卡与爱心:</span>
+                  <div class="cards-flex" id="my-special-cards">
+                    <span class="empty-hint" data-i18n="none">无</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Action Controls -->
+              <div class="my-action-controls" id="my-action-controls">
+                <button id="btn-hit" class="action-btn btn-hit">
+                  <span class="btn-icon">🃏</span>
+                  <div class="btn-text-col">
+                    <span class="main-label" data-i18n="btnHit">摸牌 (翻一张)</span>
+                    <span class="sub-label" id="hit-sublabel">翻一张新牌</span>
+                  </div>
+                </button>
+
+                <button id="btn-stay" class="action-btn btn-stay">
+                  <span class="btn-icon">🛑</span>
+                  <div class="btn-text-col">
+                    <span class="main-label" data-i18n="btnStay">停牌 (锁定得分)</span>
+                    <span class="sub-label" id="stay-sublabel">锁定本轮得分</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Side Panel: Game Log, Leaderboard & Chat -->
+          <aside class="game-sidebar">
+            <div class="sidebar-tabs">
+              <button class="tab-btn active" data-tab="tab-log" data-i18n="feedTab">📜 战报</button>
+              <button class="tab-btn" data-tab="tab-scores" data-i18n="scoresTab">🏆 积分榜</button>
+              <button class="tab-btn" data-tab="tab-chat" id="tab-btn-chat" data-i18n="chatTab">💬 聊天</button>
+            </div>
+
+            <!-- Tab 1: Live Feed / Log -->
+            <div id="tab-log" class="tab-pane active">
+              <div class="log-stream" id="log-stream"></div>
+            </div>
+
+            <!-- Tab 2: Scores -->
+            <div id="tab-scores" class="tab-pane">
+              <div class="scoreboard-list" id="scoreboard-list"></div>
+            </div>
+
+            <!-- Tab 3: Chat -->
+            <div id="tab-chat" class="tab-pane">
+              <div class="chat-messages" id="chat-messages"></div>
+              <form id="chat-form" class="chat-form">
+                <input type="text" id="chat-input" data-i18n-placeholder="saySomething" placeholder="说点什么..." maxlength="60" autocomplete="off">
+                <button type="submit" class="btn-tiny" data-i18n="sendBtn">发送</button>
+              </form>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ================= MODALS & POPUPS ================= -->
+
+    <!-- Target Selection Modal (For Freeze, Flip Three, Second Chance Gift) -->
+    <div id="modal-target" class="modal-overlay hidden">
+      <div class="modal-card">
+        <h2 id="target-modal-title" data-i18n="selectTargetTitle">选择目标玩家</h2>
+        <p id="target-modal-desc">选择一位玩家使用该功能卡：</p>
+        <div class="target-card-preview" id="target-card-preview"></div>
+        <div class="target-players-grid" id="target-players-grid"></div>
+      </div>
+    </div>
+
+    <!-- Round Recap Modal -->
+    <div id="modal-recap" class="modal-overlay hidden">
+      <div class="modal-card recap-card">
+        <div class="recap-header">
+          <span class="trophy-icon">🏁</span>
+          <h2><span data-i18n="roundLabel">第</span> <span id="recap-round-num">1</span> <span data-i18n="roundCompleteTitle">轮结束！</span></h2>
+          <p id="recap-reason" class="recap-reason"></p>
+        </div>
+        <div class="recap-table-container">
+          <table class="recap-table">
+            <thead>
+              <tr>
+                <th data-i18n="thPlayer">玩家</th>
+                <th data-i18n="thStatus">状态</th>
+                <th data-i18n="thCards">手牌</th>
+                <th data-i18n="thRoundPts">本轮得分</th>
+                <th data-i18n="thTotalPts">累计总分</th>
+              </tr>
+            </thead>
+            <tbody id="recap-table-body"></tbody>
+          </table>
+        </div>
+        <div class="recap-footer" id="recap-footer">
+          <button id="btn-next-round" class="btn btn-primary btn-lg" data-i18n="btnNextRound">下一轮 ➡️</button>
+          <span id="recap-guest-notice" class="guest-notice hidden" data-i18n="waitingNextRound">等待房主开启下一轮...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Game Over Victory Modal -->
+    <div id="modal-gameover" class="modal-overlay hidden">
+      <div class="modal-card victory-card">
+        <div class="victory-crown">👑</div>
+        <h1 data-i18n="victoryTitle">🎉 最终大获全胜！</h1>
+        <div class="champion-spotlight" id="champion-spotlight"></div>
+        <div class="podium-area" id="podium-area"></div>
+        <div class="victory-actions" id="victory-actions">
+          <button id="btn-play-again" class="btn btn-primary btn-lg" data-i18n="btnPlayAgain">🔄 再来一局</button>
+          <button id="btn-return-lobby" class="btn btn-outline" data-i18n="btnReturnLobby">🏠 返回大厅</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Theme Picker Modal -->
+    <div id="modal-theme" class="modal-overlay hidden">
+      <div class="modal-card theme-picker-card">
+        <div class="modal-close-row">
+          <h2 data-i18n="themeModalTitle">选择牌桌主题风格</h2>
+          <button id="btn-close-theme" class="close-x">✕</button>
+        </div>
+        <p class="modal-subtext" data-i18n="themeModalDesc" style="color:var(--text-muted);margin-bottom:1.25rem;font-size:0.9rem">随心切换个性化视觉氛围与牌桌质感：</p>
+        <div class="theme-options-grid" id="theme-options-grid">
+          <!-- 1. Casino -->
+          <div class="theme-option-card active" data-theme-id="casino">
+            <div class="theme-preview-swatch swatch-casino">
+              <div class="swatch-rail"></div>
+              <div class="swatch-felt"></div>
+              <div class="swatch-card">7</div>
+            </div>
+            <div class="theme-card-info">
+              <strong data-i18n="themeCasino">🎰 经典绿呢赌场</strong>
+              <small data-i18n="themeCasinoDesc">翡翠绿呢绒、黄铜包边与奢华金色高光</small>
+            </div>
+          </div>
+          <!-- 2. Cyberpunk -->
+          <div class="theme-option-card" data-theme-id="cyberpunk">
+            <div class="theme-preview-swatch swatch-cyberpunk">
+              <div class="swatch-rail"></div>
+              <div class="swatch-felt"></div>
+              <div class="swatch-card">7</div>
+            </div>
+            <div class="theme-card-info">
+              <strong data-i18n="themeCyberpunk">⚡ 赛博朋克霓虹</strong>
+              <small data-i18n="themeCyberpunkDesc">未来科技网格、电光青与荧光粉红光晕</small>
+            </div>
+          </div>
+          <!-- 3. Retro Arcade -->
+          <div class="theme-option-card" data-theme-id="arcade">
+            <div class="theme-preview-swatch swatch-arcade">
+              <div class="swatch-rail"></div>
+              <div class="swatch-felt"></div>
+              <div class="swatch-card">7</div>
+            </div>
+            <div class="theme-card-info">
+              <strong data-i18n="themeArcade">🕹️ 8-Bit 复古街机</strong>
+              <small data-i18n="themeArcadeDesc">80年代复古游戏厅、街机像素与炫彩跳脱感</small>
+            </div>
+          </div>
+          <!-- 4. Cozy Cafe -->
+          <div class="theme-option-card" data-theme-id="cozy_cafe">
+            <div class="theme-preview-swatch swatch-cafe">
+              <div class="swatch-rail"></div>
+              <div class="swatch-felt"></div>
+              <div class="swatch-card">7</div>
+            </div>
+            <div class="theme-card-info">
+              <strong data-i18n="themeCafe">☕ 温暖原木咖啡</strong>
+              <small data-i18n="themeCafeDesc">沉稳红木桌、羊皮纸卡牌与温馨咖啡馆质感</small>
+            </div>
+          </div>
+          <!-- 5. Celestial -->
+          <div class="theme-option-card" data-theme-id="celestial">
+            <div class="theme-preview-swatch swatch-celestial">
+              <div class="swatch-rail"></div>
+              <div class="swatch-felt"></div>
+              <div class="swatch-card">7</div>
+            </div>
+            <div class="theme-card-info">
+              <strong data-i18n="themeCelestial">🌌 深邃星空秘境</strong>
+              <small data-i18n="themeCelestialDesc">星系星云紫、月光铂金与神秘塔罗星芒</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rules Guide Modal -->
+    <div id="modal-rules" class="modal-overlay hidden">
+      <div class="modal-card rules-card">
+        <div class="modal-close-row">
+          <h2 data-i18n="rulesTitle">Flip 7 — 官方规则说明</h2>
+          <button id="btn-close-rules" class="close-x">✕</button>
+        </div>
+        <div class="rules-scrollable">
+          <section class="rule-sec">
+            <h3 data-i18n="ruleObjTitle">🎯 游戏目标</h3>
+            <p data-i18n="ruleObjText">通过逐张翻牌积累分数，率先达到 <strong>200 分</strong>（或房间设定目标）的玩家获胜！切勿贪心导致翻出重复数字爆牌！</p>
+          </section>
+
+          <section class="rule-sec">
+            <h3 data-i18n="ruleTurnTitle">🃏 回合行动</h3>
+            <ul>
+              <li data-i18n="ruleTurnHit"><strong>摸牌 (HIT)：</strong>从牌堆翻开顶牌。若是你未拥有的数字牌，收入手牌；若翻出手中已有的重复数字，你将立刻【爆牌】，本轮得0分！</li>
+              <li data-i18n="ruleTurnStay"><strong>停牌 (STAY)：</strong>落袋为安！锁定当前手牌得分并退出本轮后续行动，分数安全计入总分。</li>
+            </ul>
+          </section>
+
+          <section class="rule-sec">
+            <h3 data-i18n="ruleFlip7Title">🌟 FLIP 7 超级翻盘！</h3>
+            <p data-i18n="ruleFlip7Text">如果你在不爆牌的情况下成功翻出 <strong>7 张不同的数字牌</strong>，将达成【FLIP 7】！额外获得 <strong>+15 分大奖</strong>，并立刻终结本轮！</p>
+          </section>
+
+          <section class="rule-sec">
+            <h3 data-i18n="ruleDeckTitle">📦 牌库构成（共94张牌）</h3>
+            <div class="deck-breakdown-grid">
+              <div class="breakdown-card">
+                <h4 data-i18n="ruleNumbersTitle">数字牌 (0–12，共79张)</h4>
+                <p data-i18n="ruleNumbersDesc">牌面数字与牌库中的张数相同！（1张0，1张1，2张2，3张3...12张12）。大数字牌分值高，但在牌堆中张数极多，爆牌几率剧增！</p>
+              </div>
+              <div class="breakdown-card">
+                <h4 data-i18n="ruleModifiersTitle">加分卡与翻倍卡 (共6张)</h4>
+                <p data-i18n="ruleModifiersDesc">+2, +4, +6, +8, +10 附加额外奖励分；极为宝贵的【x2 翻倍卡】会将所有数字牌与加分卡的总和翻倍！加分卡绝不触发爆牌。</p>
+              </div>
+              <div class="breakdown-card">
+                <h4 data-i18n="ruleActionsTitle">特殊功能卡 (共9张)</h4>
+                <p data-i18n="ruleSecondChanceDesc">❤️ 第二次机会 (3张)：多一条命！翻出重复数字时自动消耗一颗爱心免除爆牌，获得一次重来机会。</p>
+                <p data-i18n="ruleFreezeDesc">❄️ 冰冻卡 (3张)：选择任意一名进行中的玩家，强迫其立刻停牌锁定当前分数。</p>
+                <p data-i18n="ruleFlipThreeDesc">⚡ 连翻三张 (3张)：选择一名玩家强迫其连续翻3张牌，极度惊险刺激！</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="rule-sec">
+            <h3 data-i18n="ruleScoringTitle">🧮 计分规则</h3>
+            <p data-i18n="ruleScoringDesc">本轮得分 = ((数字牌总和 + 附加分) × (2 若有x2)) + (15 若达成Flip 7)。爆牌玩家本轮得 0 分。</p>
+          </section>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="i18n.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
