@@ -239,18 +239,78 @@
   const confetti = new Confetti('confetti-canvas');
 
   // ============================================================================
+  // Random Nickname & Avatar Generator
+  // ============================================================================
+
+  const ALL_AVATARS = ['🦊', '🦁', '🐼', '🦅', '🐉', '🤖', '🎲', '💎', '🚀', '👑', '🍀', '🔥', '🐯', '🦄', '🐙', '🦉', '🦈', '🐺'];
+  const RANDOM_NAMES_ZH = [
+    '幸运锦鲤', '王牌怪盗', '翻牌雀神', '欧皇本皇', '闪电快手', '冷静大师',
+    '天选之子', '星际赌神', '神抽王', '逍遥浪客', '神秘大咖', '极速猎手',
+    '深海巨鲨', '暗夜狐仙', '黄金狮子', '暴风飞龙', '绝世好牌', '紫气东来'
+  ];
+  const RANDOM_NAMES_EN = [
+    'Lucky Fox', 'Ace Shark', 'Star Roller', 'Card Wizard', 'Shadow King', 'Neon Maverick',
+    'Golden Lion', 'Frost Dragon', 'Turbo Panda', 'Royal Flush', 'Cyber Hawk', 'Wild Joker',
+    'Mystic Wolf', 'Ruby Falcon', 'Cosmic Owl', 'Blaze Tiger'
+  ];
+
+  function generateRandomProfile(usedNames = new Set(), usedAvatars = new Set()) {
+    const isZh = (window.getCurrentLanguage ? window.getCurrentLanguage() === 'zh' : true);
+    const namePool = isZh ? RANDOM_NAMES_ZH : RANDOM_NAMES_EN;
+
+    const availAvatars = ALL_AVATARS.filter(a => !usedAvatars.has(a));
+    const avatarList = availAvatars.length > 0 ? availAvatars : ALL_AVATARS;
+    const avatar = avatarList[Math.floor(Math.random() * avatarList.length)];
+
+    let name = '';
+    for (let i = 0; i < 20; i++) {
+      const base = namePool[Math.floor(Math.random() * namePool.length)];
+      const num = Math.floor(Math.random() * 90) + 10;
+      const candidate = `${base}${num}`;
+      if (!usedNames.has(candidate)) {
+        name = candidate;
+        break;
+      }
+    }
+    if (!name) {
+      name = `${namePool[0]}${Math.floor(Math.random() * 900) + 100}`;
+    }
+    return { name, avatar };
+  }
+
+  // Generate a random profile for this tab if not already assigned in this tab session
+  const initialTabProfile = (() => {
+    const savedTabName = sessionStorage.getItem('flip7_tab_name');
+    const savedTabAvatar = sessionStorage.getItem('flip7_tab_avatar');
+    if (savedTabName && savedTabAvatar && savedTabName !== 'Player') {
+      return { name: savedTabName, avatar: savedTabAvatar };
+    }
+    const rand = generateRandomProfile();
+    sessionStorage.setItem('flip7_tab_name', rand.name);
+    sessionStorage.setItem('flip7_tab_avatar', rand.avatar);
+    return rand;
+  })();
+
+  const localP1 = generateRandomProfile();
+  const localP2 = generateRandomProfile(new Set([localP1.name]), new Set([localP1.avatar]));
+
+  // ============================================================================
   // App State & Network
   // ============================================================================
 
   const state = {
     ws: null,
     connected: false,
+    wasInRoomBeforeDisconnect: false,
+    reconnectTimer: null,
+    heartbeatTimer: null,
+    turnDeadlineLocal: null,
     playerId: sessionStorage.getItem('flip7_playerId') || null,
     roomCode: null,
     isHost: false,
     roomData: null,
-    playerName: localStorage.getItem('flip7_name') || 'Player',
-    playerAvatar: localStorage.getItem('flip7_avatar') || '🦊',
+    playerName: initialTabProfile.name,
+    playerAvatar: initialTabProfile.avatar,
     activeTab: 'tab-log',
     lastSeenDrawId: null,
     animatingCard: null,
@@ -262,11 +322,60 @@
     isLocalMode: false,
     localGame: null,
     localSetupPlayers: [
-      { name: 'Player 1', avatar: '🦊', isBot: false },
-      { name: 'Player 2', avatar: '🦁', isBot: false },
+      { name: localP1.name, avatar: localP1.avatar, isBot: false },
+      { name: localP2.name, avatar: localP2.avatar, isBot: false },
       { name: 'Lucky Lucy', avatar: '🍀', isBot: true, personality: 'balanced' }
     ]
   };
+
+  function saveRoomSession(roomCode, playerId, name, avatar) {
+    if (!roomCode || !playerId) return;
+    const payload = JSON.stringify({
+      roomCode,
+      playerId,
+      name,
+      avatar,
+      updatedAt: Date.now()
+    });
+    sessionStorage.setItem('flip7_playerId', playerId);
+    sessionStorage.setItem('flip7_active_room', roomCode);
+    sessionStorage.setItem('flip7_session', payload);
+    try {
+      localStorage.setItem(`flip7_room_session_${roomCode}`, payload);
+      localStorage.setItem('flip7_last_session', payload);
+    } catch (e) {}
+  }
+
+  function loadRoomSession(roomCode) {
+    try {
+      if (roomCode) {
+        const raw = localStorage.getItem(`flip7_room_session_${roomCode.toUpperCase()}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Date.now() - (parsed.updatedAt || 0) < 12 * 3600 * 1000) {
+            return parsed;
+          }
+        }
+      }
+      const tabRaw = sessionStorage.getItem('flip7_session');
+      if (tabRaw) {
+        const parsed = JSON.parse(tabRaw);
+        if (!roomCode || parsed.roomCode === roomCode.toUpperCase()) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function clearRoomSession(roomCode) {
+    sessionStorage.removeItem('flip7_active_room');
+    sessionStorage.removeItem('flip7_session');
+    try {
+      if (roomCode) localStorage.removeItem(`flip7_room_session_${roomCode.toUpperCase()}`);
+      localStorage.removeItem('flip7_last_session');
+    } catch (e) {}
+  }
 
   // Helper Elements
   const el = {
@@ -276,11 +385,15 @@
     screenRoomLobby: document.getElementById('screen-room-lobby'),
     screenGame: document.getElementById('screen-game'),
 
-    // Header
+    // Header & Network Banners
     btnThemeToggle: document.getElementById('btn-theme-toggle'),
     btnLangToggle: document.getElementById('btn-lang-toggle'),
     btnSoundToggle: document.getElementById('btn-sound-toggle'),
     btnRules: document.getElementById('btn-rules'),
+    reconnectBanner: document.getElementById('reconnect-banner'),
+    reconnectText: document.getElementById('reconnect-text'),
+    btnReconnectNow: document.getElementById('btn-reconnect-now'),
+    reconnectToast: document.getElementById('reconnect-toast'),
 
     // Theme Modal
     modalTheme: document.getElementById('modal-theme'),
@@ -292,6 +405,7 @@
     selectedAvatar: document.getElementById('selected-avatar'),
     avatarTrigger: document.getElementById('avatar-trigger'),
     avatarPicker: document.getElementById('avatar-picker'),
+    btnRandomProfile: document.getElementById('btn-random-profile'),
     createTargetScore: document.getElementById('create-target-score'),
     createShowOdds: document.getElementById('create-show-odds'),
     btnCreateRoom: document.getElementById('btn-create-room'),
@@ -326,6 +440,7 @@
     // Game Table
     gameRoundNum: document.getElementById('game-round-num'),
     turnPlayerName: document.getElementById('turn-player-name'),
+    turnTimerBadge: document.getElementById('turn-timer-badge'),
     gameTargetScore: document.getElementById('game-target-score'),
     localPassBanner: document.getElementById('local-pass-banner'),
     localPassText: document.getElementById('local-pass-text'),
@@ -344,6 +459,9 @@
     myAvatar: document.getElementById('my-avatar'),
     myName: document.getElementById('my-name'),
     myStatusPill: document.getElementById('my-status-pill'),
+    btnToggleAutoplay: document.getElementById('btn-toggle-autoplay'),
+    autoplayBanner: document.getElementById('autoplay-banner'),
+    btnResumeManual: document.getElementById('btn-resume-manual'),
     myHandScore: document.getElementById('my-hand-score'),
     myTotalScore: document.getElementById('my-total-score'),
     myNumberCount: document.getElementById('my-number-count'),
@@ -390,8 +508,45 @@
   };
 
   // ============================================================================
-  // WebSocket Connection (For Online Multiplayer)
+  // WebSocket Connection & Auto-Reconnect (For Online Multiplayer)
   // ============================================================================
+
+  function showReconnectToast() {
+    if (!el.reconnectToast) return;
+    el.reconnectToast.classList.remove('hidden');
+    clearTimeout(el.reconnectToast._hideTimer);
+    el.reconnectToast._hideTimer = setTimeout(() => {
+      el.reconnectToast.classList.add('hidden');
+    }, 3200);
+  }
+
+  function startHeartbeat() {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = setInterval(() => {
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        try {
+          state.ws.send(JSON.stringify({ type: 'PING', data: {} }));
+        } catch (e) {}
+      }
+    }, 20000);
+  }
+
+  function triggerReconnectNow() {
+    if (!state.roomCode || state.isLocalMode) return;
+    clearTimeout(state.reconnectTimer);
+    if (state.ws) {
+      try { state.ws.close(); } catch (e) {}
+      state.ws = null;
+    }
+    connectWebSocket(() => {
+      sendWS('JOIN_ROOM', {
+        roomCode: state.roomCode,
+        playerId: state.playerId,
+        name: state.playerName,
+        avatar: state.playerAvatar
+      });
+    });
+  }
 
   function connectWebSocket(onOpenCallback) {
     if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) {
@@ -407,6 +562,9 @@
 
     state.ws.onopen = () => {
       state.connected = true;
+      clearTimeout(state.reconnectTimer);
+      startHeartbeat();
+      if (el.reconnectBanner) el.reconnectBanner.classList.add('hidden');
       if (onOpenCallback) onOpenCallback();
     };
 
@@ -421,15 +579,14 @@
 
     state.ws.onclose = () => {
       state.connected = false;
+      clearInterval(state.heartbeatTimer);
       if (state.roomCode && !state.isLocalMode) {
-        setTimeout(() => connectWebSocket(() => {
-          sendWS('JOIN_ROOM', {
-            roomCode: state.roomCode,
-            playerId: state.playerId,
-            name: state.playerName,
-            avatar: state.playerAvatar
-          });
-        }), 2000);
+        state.wasInRoomBeforeDisconnect = true;
+        if (el.reconnectBanner) el.reconnectBanner.classList.remove('hidden');
+        clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = setTimeout(() => {
+          triggerReconnectNow();
+        }, 2000);
       }
     };
   }
@@ -452,18 +609,44 @@
   function handleServerMessage(msg) {
     const { type, data } = msg;
 
+    if (type === 'PONG') {
+      return;
+    }
+
     if (type === 'ROOM_CREATED' || type === 'ROOM_JOINED') {
       state.isLocalMode = false;
       state.roomCode = data.roomCode;
       state.playerId = data.playerId;
-      sessionStorage.setItem('flip7_playerId', state.playerId);
+      if (data.playerName) {
+        state.playerName = data.playerName;
+        el.playerNameInput.value = data.playerName;
+      }
+      if (data.playerAvatar) {
+        state.playerAvatar = data.playerAvatar;
+        el.selectedAvatar.textContent = data.playerAvatar;
+      }
+      saveRoomSession(state.roomCode, state.playerId, state.playerName, state.playerAvatar);
       history.replaceState(null, '', `?room=${data.roomCode}`);
+
+      if (el.reconnectBanner) el.reconnectBanner.classList.add('hidden');
+      if (data.reconnected || state.wasInRoomBeforeDisconnect) {
+        state.wasInRoomBeforeDisconnect = false;
+        showReconnectToast();
+      }
       updateGameState(data.state);
     } else if (type === 'STATE_UPDATE') {
       updateGameState(data);
     } else if (type === 'CHAT_MESSAGE') {
       renderChatMessage(data);
     } else if (type === 'ERROR') {
+      if (data && data.code === 'ROOM_NOT_FOUND') {
+        clearRoomSession(state.roomCode);
+        state.roomCode = null;
+        state.wasInRoomBeforeDisconnect = false;
+        if (el.reconnectBanner) el.reconnectBanner.classList.add('hidden');
+        history.replaceState(null, '', window.location.pathname);
+        showScreen(el.screenHome);
+      }
       alert(data.message || 'An error occurred.');
     }
   }
@@ -496,12 +679,15 @@
       this.lastDrawResult = null;
       this.pendingTarget = null;
       this.winner = null;
+      this.turnDeadline = null;
+      this.inactivityTimer = null;
 
       this.players = playerConfigs.map((cfg, i) => ({
         id: `local_p_${i}`,
         name: cfg.name,
         avatar: cfg.avatar,
         isBot: cfg.isBot,
+        isAutoPlay: false,
         botPersonality: cfg.personality || 'balanced',
         totalScore: 0,
         roundScore: 0,
@@ -886,6 +1072,8 @@
     }
 
     endRound(reason = '') {
+      clearTimeout(this.inactivityTimer);
+      this.turnDeadline = null;
       this.state = 'round_recap';
       this.players.forEach(p => {
         const pts = this.computeScore(p);
@@ -904,13 +1092,39 @@
       }
     }
 
+    scheduleInactivityTimer(actor) {
+      clearTimeout(this.inactivityTimer);
+      this.turnDeadline = null;
+      if (this.state !== 'playing' || !actor || actor.isBot || actor.isAutoPlay) return;
+      this.turnDeadline = (Date.now() / 1000) + 60;
+      this.inactivityTimer = setTimeout(() => {
+        if (this.state !== 'playing') return;
+        const curActor = this.pendingTarget
+          ? this.players.find(p => p.id === this.pendingTarget.source_id)
+          : this.currentPlayer();
+        if (!curActor || curActor.id !== actor.id || curActor.isBot || curActor.isAutoPlay) return;
+        curActor.isAutoPlay = true;
+        this.turnDeadline = null;
+        this.log(`🤖 ${curActor.name} 超过 60 秒未行动，已自动进入 AI 托管模式！`);
+        renderLocalState();
+        if (this.pendingTarget) this.checkBotTarget();
+        else this.checkBotTurn();
+      }, 60000);
+    }
+
     checkBotTurn() {
+      clearTimeout(this.inactivityTimer);
+      this.turnDeadline = null;
       if (this.state !== 'playing') return;
       const cur = this.currentPlayer();
-      if (!cur || !cur.isBot || cur.roundStatus !== 'active') return;
+      if (!cur || cur.roundStatus !== 'active') return;
+      if (!cur.isBot && !cur.isAutoPlay) {
+        this.scheduleInactivityTimer(cur);
+        return;
+      }
 
       setTimeout(() => {
-        if (this.state !== 'playing' || this.currentPlayer() !== cur) return;
+        if (this.state !== 'playing' || this.currentPlayer() !== cur || (!cur.isBot && !cur.isAutoPlay)) return;
         const stats = this.getStats(cur);
         const pts = this.computeScore(cur);
         let shouldHit = true;
@@ -942,12 +1156,18 @@
     }
 
     checkBotTarget() {
+      clearTimeout(this.inactivityTimer);
+      this.turnDeadline = null;
       if (!this.pendingTarget) return;
       const source = this.players.find(p => p.id === this.pendingTarget.source_id);
-      if (!source || !source.isBot) return;
+      if (!source) return;
+      if (!source.isBot && !source.isAutoPlay) {
+        this.scheduleInactivityTimer(source);
+        return;
+      }
 
       setTimeout(() => {
-        if (!this.pendingTarget) return;
+        if (!this.pendingTarget || (!source.isBot && !source.isAutoPlay)) return;
         const valid = this.pendingTarget.valid_targets;
         let targetId = valid[0];
 
@@ -1001,6 +1221,8 @@
         roundNumber: this.roundNumber,
         dealerId: this.players[this.dealerIndex].id,
         currentTurnPlayerId: cur ? cur.id : null,
+        turnDeadline: this.turnDeadline,
+        serverTime: Date.now() / 1000,
         players: this.players,
         lastCardDrawn: this.lastCardDrawn,
         lastDrawResult: this.lastDrawResult,
@@ -1096,13 +1318,36 @@
   function handleLocalAction(type, data) {
     if (!state.localGame) return;
     const g = state.localGame;
+    const cur = g.currentPlayer();
 
     if (type === 'HIT') {
+      if (cur && cur.isAutoPlay) cur.isAutoPlay = false;
       executeLocalHit(g);
       return;
     }
-    else if (type === 'STAY') g.stay();
-    else if (type === 'SELECT_TARGET') g.resolveTarget(data.targetPlayerId);
+    else if (type === 'STAY') {
+      if (cur && cur.isAutoPlay) cur.isAutoPlay = false;
+      g.stay();
+    }
+    else if (type === 'SELECT_TARGET') {
+      const src = g.pendingTarget ? g.players.find(p => p.id === g.pendingTarget.source_id) : null;
+      if (src && src.isAutoPlay) src.isAutoPlay = false;
+      g.resolveTarget(data.targetPlayerId);
+    }
+    else if (type === 'SET_AUTO_PLAY') {
+      const p = g.players.find(pl => pl.id === state.playerId) || cur;
+      if (p && !p.isBot) {
+        p.isAutoPlay = !!data.enabled;
+        if (p.isAutoPlay) {
+          g.log(`🤖 ${p.name} 开启了 AI 托管模式。`);
+          if (g.pendingTarget) g.checkBotTarget();
+          else g.checkBotTurn();
+        } else {
+          g.log(`👤 ${p.name} 取消了 AI 托管，恢复手动操作。`);
+          g.scheduleInactivityTimer(p);
+        }
+      }
+    }
     else if (type === 'NEXT_ROUND') g.startNewRound();
     else if (type === 'RESTART_GAME') {
       g.players.forEach(p => {
@@ -1131,8 +1376,30 @@
   // State Rendering Pipeline
   // ============================================================================
 
+  function updateTurnTimerUI() {
+    if (!el.turnTimerBadge) return;
+    if (!state.roomData || state.roomData.state !== 'playing' || !state.turnDeadlineLocal) {
+      el.turnTimerBadge.classList.add('hidden');
+      return;
+    }
+    const rem = Math.max(0, Math.ceil((state.turnDeadlineLocal - Date.now()) / 1000));
+    el.turnTimerBadge.classList.remove('hidden');
+    el.turnTimerBadge.textContent = `⏳ ${rem}s`;
+    el.turnTimerBadge.className = 'turn-timer-badge ' + (rem <= 10 ? 'timer-danger' : (rem <= 20 ? 'timer-warn' : ''));
+  }
+
+  setInterval(updateTurnTimerUI, 500);
+
   function updateGameState(room) {
     state.roomData = room;
+    if (room.turnDeadline && room.serverTime && room.state === 'playing') {
+      const remainingMs = (room.turnDeadline - room.serverTime) * 1000;
+      state.turnDeadlineLocal = Date.now() + Math.max(0, remainingMs);
+    } else {
+      state.turnDeadlineLocal = null;
+    }
+    updateTurnTimerUI();
+
     const curP = room.players.find(p => p.id === room.currentTurnPlayerId);
 
     // In local mode, the active device user is whoever is currently on turn!
@@ -1177,10 +1444,13 @@
     el.lobbyPlayerCount.textContent = room.players.length;
 
     el.lobbyPlayerList.innerHTML = room.players.map(p => `
-      <div class="lobby-player-card ${p.id === room.hostId ? 'is-host' : ''}">
+      <div class="lobby-player-card ${p.id === room.hostId ? 'is-host' : ''} ${p.isConnected === false ? 'is-offline' : ''}">
         <span class="p-avatar">${p.avatar}</span>
         <div class="p-info">
-          <span class="p-name">${escapeHTML(p.name)}</span>
+          <span class="p-name">
+            ${escapeHTML(p.name)}
+            ${p.isConnected === false ? `<span class="badge-offline">${window.t('offlineTag')}</span>` : ''}
+          </span>
           <span class="p-role">${p.id === room.hostId ? window.t('tableHost') : (p.isBot ? `🤖 ${window.t('botLabel')} (${p.botPersonality})` : window.t('playerLabel'))}</span>
         </div>
         ${state.isHost && p.id !== room.hostId ? `<button class="btn-remove-player" data-pid="${p.id}" title="${window.t('removeLabel')}">✕</button>` : ''}
@@ -1491,6 +1761,24 @@
       const statusKey = `status${myPlayer.roundStatus.charAt(0).toUpperCase() + myPlayer.roundStatus.slice(1)}`;
       el.myStatusPill.textContent = window.t(statusKey);
 
+      // AI Auto-Play Toggle & Banner
+      if (el.btnToggleAutoplay) {
+        if (myPlayer.isBot) {
+          el.btnToggleAutoplay.classList.add('hidden');
+        } else {
+          el.btnToggleAutoplay.classList.remove('hidden');
+          el.btnToggleAutoplay.classList.toggle('is-active', !!myPlayer.isAutoPlay);
+          el.btnToggleAutoplay.textContent = myPlayer.isAutoPlay ? window.t('disableAutoPlayBtn') : window.t('enableAutoPlayBtn');
+        }
+      }
+      if (el.autoplayBanner) {
+        if (!myPlayer.isBot && myPlayer.isAutoPlay) {
+          el.autoplayBanner.classList.remove('hidden');
+        } else {
+          el.autoplayBanner.classList.add('hidden');
+        }
+      }
+
       if (isMyTurn) {
         el.myPlayerBoard.classList.add('is-my-turn');
       } else {
@@ -1586,13 +1874,15 @@
       const statusKey = `status${p.roundStatus.charAt(0).toUpperCase() + p.roundStatus.slice(1)}`;
 
       return `
-        <div class="opponent-seat ${isMe ? 'is-me' : ''} ${isTurn ? 'is-turn' : ''} ${isBusted ? 'is-busted' : ''} ${isFrozen ? 'is-frozen' : ''} ${isStayed ? 'is-stayed' : ''}">
+        <div class="opponent-seat ${isMe ? 'is-me' : ''} ${isTurn ? 'is-turn' : ''} ${isBusted ? 'is-busted' : ''} ${isFrozen ? 'is-frozen' : ''} ${isStayed ? 'is-stayed' : ''} ${p.isConnected === false ? 'is-offline' : ''}">
           <div class="seat-header">
             <div class="seat-avatar-name">
               <span class="seat-avatar">${p.avatar}</span>
               <span class="seat-name" title="${escapeHTML(p.name)}">
                 ${escapeHTML(p.name)}
                 ${isMe ? `<span class="seat-me-tag">${window.t('youTag')}</span>` : ''}
+                ${p.isAutoPlay ? `<span class="seat-auto-tag">${window.t('autoPlayTag')}</span>` : ''}
+                ${p.isConnected === false ? `<span class="seat-offline-tag">${window.t('offlineTag')}</span>` : ''}
               </span>
             </div>
             <span class="seat-score">${p.roundScore} <small style="color:#94a3b8">/ ${p.totalScore}</small></span>
@@ -2177,21 +2467,60 @@
     sfx.playClick();
   });
 
-  // Avatar Picker
+  // Avatar Picker & Random Profile Button
   el.avatarTrigger.addEventListener('click', () => el.avatarPicker.classList.toggle('hidden'));
   el.avatarPicker.querySelectorAll('.avatar-opt').forEach(opt => {
     opt.addEventListener('click', () => {
       state.playerAvatar = opt.textContent;
       el.selectedAvatar.textContent = state.playerAvatar;
+      sessionStorage.setItem('flip7_tab_avatar', state.playerAvatar);
       localStorage.setItem('flip7_avatar', state.playerAvatar);
       el.avatarPicker.classList.add('hidden');
     });
   });
 
   el.playerNameInput.addEventListener('input', () => {
-    state.playerName = el.playerNameInput.value.trim() || 'Player';
+    state.playerName = el.playerNameInput.value.trim() || state.playerName;
+    sessionStorage.setItem('flip7_tab_name', state.playerName);
     localStorage.setItem('flip7_name', state.playerName);
   });
+
+  if (el.btnRandomProfile) {
+    el.btnRandomProfile.addEventListener('click', () => {
+      sfx.playClick();
+      const rand = generateRandomProfile(new Set([state.playerName]), new Set([state.playerAvatar]));
+      state.playerName = rand.name;
+      state.playerAvatar = rand.avatar;
+      el.playerNameInput.value = rand.name;
+      el.selectedAvatar.textContent = rand.avatar;
+      sessionStorage.setItem('flip7_tab_name', rand.name);
+      sessionStorage.setItem('flip7_tab_avatar', rand.avatar);
+    });
+  }
+
+  if (el.btnReconnectNow) {
+    el.btnReconnectNow.addEventListener('click', () => {
+      sfx.playClick();
+      triggerReconnectNow();
+    });
+  }
+
+  if (el.btnToggleAutoplay) {
+    el.btnToggleAutoplay.addEventListener('click', () => {
+      sfx.playClick();
+      if (!state.roomData) return;
+      const myPlayer = state.roomData.players.find(p => p.id === state.playerId);
+      if (!myPlayer) return;
+      sendWS('SET_AUTO_PLAY', { enabled: !myPlayer.isAutoPlay });
+    });
+  }
+
+  if (el.btnResumeManual) {
+    el.btnResumeManual.addEventListener('click', () => {
+      sfx.playClick();
+      sendWS('SET_AUTO_PLAY', { enabled: false });
+    });
+  }
 
   // Create Online Room
   el.btnCreateRoom.addEventListener('click', () => {
@@ -2218,9 +2547,11 @@
       alert(window.getCurrentLanguage() === 'zh' ? '请输入4位房间代码。' : 'Please enter a 4-letter room code.');
       return;
     }
+    const savedSess = loadRoomSession(code);
     connectWebSocket(() => {
       sendWS('JOIN_ROOM', {
         roomCode: code,
+        playerId: savedSess ? savedSess.playerId : state.playerId,
         name: state.playerName,
         avatar: state.playerAvatar
       });
@@ -2238,9 +2569,10 @@
   el.btnLocalAddPlayer.addEventListener('click', () => {
     sfx.playClick();
     if (state.localSetupPlayers.length >= 8) return;
-    const n = state.localSetupPlayers.length + 1;
-    const avatar = LOCAL_AVATARS[(n - 1) % LOCAL_AVATARS.length];
-    state.localSetupPlayers.push({ name: `Player ${n}`, avatar: avatar, isBot: false });
+    const usedNames = new Set(state.localSetupPlayers.map(p => p.name));
+    const usedAvatars = new Set(state.localSetupPlayers.map(p => p.avatar));
+    const rand = generateRandomProfile(usedNames, usedAvatars);
+    state.localSetupPlayers.push({ name: rand.name, avatar: rand.avatar, isBot: false });
     renderLocalSetupList();
   });
 
@@ -2323,8 +2655,15 @@
 
   el.btnLeaveRoom.addEventListener('click', () => {
     sfx.playClick();
+    const oldRoom = state.roomCode;
+    if (oldRoom && !state.isLocalMode && state.ws && state.ws.readyState === WebSocket.OPEN) {
+      try { state.ws.send(JSON.stringify({ type: 'LEAVE_ROOM', data: {} })); } catch (e) {}
+    }
+    clearRoomSession(oldRoom);
     state.roomCode = null;
     state.roomData = null;
+    state.wasInRoomBeforeDisconnect = false;
+    if (el.reconnectBanner) el.reconnectBanner.classList.add('hidden');
     history.replaceState(null, '', window.location.pathname);
     showScreen(el.screenHome);
   });
@@ -2353,8 +2692,17 @@
   el.btnReturnLobby.addEventListener('click', () => {
     sfx.playClick();
     closeModals();
+    const oldRoom = state.roomCode;
+    if (oldRoom && !state.isLocalMode && state.ws && state.ws.readyState === WebSocket.OPEN) {
+      try { state.ws.send(JSON.stringify({ type: 'LEAVE_ROOM', data: {} })); } catch (e) {}
+    }
+    clearRoomSession(oldRoom);
+    state.roomCode = null;
+    state.roomData = null;
+    state.wasInRoomBeforeDisconnect = false;
     state.isLocalMode = false;
     state.localGame = null;
+    history.replaceState(null, '', window.location.pathname);
     showScreen(el.screenHome);
   });
 
@@ -2394,11 +2742,28 @@
   el.playerNameInput.value = state.playerName;
   el.selectedAvatar.textContent = state.playerAvatar;
 
-  // Auto-join from URL param
+  // Auto-join or Auto-Reconnect from URL param or saved session
   const urlParams = new URLSearchParams(window.location.search);
-  const roomParam = urlParams.get('room');
+  const roomParam = (urlParams.get('room') || sessionStorage.getItem('flip7_active_room') || '').trim().toUpperCase();
   if (roomParam) {
-    el.roomCodeInput.value = roomParam.trim().toUpperCase();
+    el.roomCodeInput.value = roomParam;
+    const savedSess = loadRoomSession(roomParam);
+    if (savedSess && savedSess.playerId) {
+      state.playerId = savedSess.playerId;
+      state.playerName = savedSess.name || state.playerName;
+      state.playerAvatar = savedSess.avatar || state.playerAvatar;
+      el.playerNameInput.value = state.playerName;
+      el.selectedAvatar.textContent = state.playerAvatar;
+      state.wasInRoomBeforeDisconnect = true;
+      connectWebSocket(() => {
+        sendWS('JOIN_ROOM', {
+          roomCode: roomParam,
+          playerId: savedSess.playerId,
+          name: state.playerName,
+          avatar: state.playerAvatar
+        });
+      });
+    }
   }
 
 })();

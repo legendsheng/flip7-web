@@ -198,6 +198,27 @@ def decode_ws_frame(buffer: bytearray) -> Tuple[Optional[int], Optional[bytes], 
 # Game Logic & State Management
 # ============================================================================
 
+INACTIVITY_TIMEOUT_SEC = 60
+
+RANDOM_AVATARS = ["🦊", "🦁", "🐼", "🦅", "🐉", "🤖", "🎲", "💎", "🚀", "👑", "🍀", "🔥", "🐯", "🦄", "🐙", "🦉", "🦈", "🐺"]
+RANDOM_NICKNAMES = [
+    "幸运锦鲤", "王牌怪盗", "翻牌雀神", "欧皇本皇", "闪电快手", "冷静大师",
+    "天选之子", "星际赌神", "神抽王", "逍遥浪客", "神秘大咖", "极速猎手",
+    "深海巨鲨", "暗夜狐仙", "黄金狮子", "暴风飞龙"
+]
+
+def generate_random_profile(used_names: Optional[set] = None) -> Tuple[str, str]:
+    avatar = random.choice(RANDOM_AVATARS)
+    base_name = random.choice(RANDOM_NICKNAMES)
+    name = f"{base_name}{random.randint(10, 99)}"
+    if used_names:
+        attempts = 0
+        while name in used_names and attempts < 20:
+            name = f"{random.choice(RANDOM_NICKNAMES)}{random.randint(10, 99)}"
+            attempts += 1
+    return name, avatar
+
+
 class Player:
     def __init__(self, player_id: str, name: str, avatar: str, is_bot: bool = False, bot_personality: str = "balanced"):
         self.id = player_id
@@ -207,6 +228,7 @@ class Player:
         self.bot_personality = bot_personality
         self.total_score = 0
         self.is_connected = True
+        self.is_auto_play = False
         
         # Round state
         self.round_status = "active" # "active", "stayed", "frozen", "busted"
@@ -248,6 +270,7 @@ class Player:
             "name": self.name,
             "avatar": self.avatar,
             "isBot": self.is_bot,
+            "isAutoPlay": self.is_auto_play,
             "botPersonality": self.bot_personality,
             "totalScore": self.total_score,
             "roundScore": self.round_score,
@@ -282,6 +305,8 @@ class Room:
         self.winner: Optional[Player] = None
         self.clients: Dict[str, Any] = {} # player_id -> WebSocketClient
         self.bot_task: Optional[asyncio.Task] = None
+        self.timeout_task: Optional[asyncio.Task] = None
+        self.turn_deadline: Optional[float] = None
 
     def log(self, message: str):
         self.game_log.append(message)
@@ -371,6 +396,9 @@ class Room:
         self.schedule_bot_if_needed()
 
     def end_round(self, reason: str = ""):
+        if self.timeout_task and not self.timeout_task.done():
+            self.timeout_task.cancel()
+        self.turn_deadline = None
         self.state = "round_recap"
         recap_info = []
         for p in self.players:
@@ -391,6 +419,10 @@ class Room:
             # Rotate dealer
             if self.players:
                 self.dealer_index = (self.dealer_index + 1) % len(self.players)
+            # If host is in auto-play or disconnected, auto-advance next round after 6s (or 60s timeout)
+            host_p = self.get_player(self.host_id)
+            recap_delay = 5.0 if (host_p and (host_p.is_auto_play or not host_p.is_connected)) else float(INACTIVITY_TIMEOUT_SEC)
+            self.timeout_task = asyncio.create_task(self.watch_recap_timeout(self.round_number, recap_delay))
 
     def handle_hit(self, player: Player) -> Dict[str, Any]:
         """Draws a card for the player and evaluates outcomes."""
@@ -675,9 +707,17 @@ class Room:
             "bustRiskPct": bust_pct
         }
 
+    def get_active_actor(self) -> Optional[Player]:
+        if self.state != "playing":
+            return None
+        if self.pending_target:
+            return self.get_player(self.pending_target.get("source_id", ""))
+        return self.current_player()
+
     def to_dict(self, for_player_id: Optional[str] = None) -> Dict[str, Any]:
         cur_p = self.current_player()
         target_p = self.get_player(for_player_id) if for_player_id else cur_p
+        actor = self.get_active_actor()
         
         return {
             "roomCode": self.code,
@@ -688,6 +728,9 @@ class Room:
             "roundNumber": self.round_number,
             "dealerId": self.players[self.dealer_index].id if self.players else None,
             "currentTurnPlayerId": cur_p.id if cur_p else None,
+            "activeActorId": actor.id if actor else None,
+            "turnDeadline": self.turn_deadline,
+            "serverTime": time.time(),
             "players": [p.to_dict() for p in self.players],
             "lastCardDrawn": self.last_card_drawn,
             "lastDrawResult": self.last_draw_result,
@@ -707,23 +750,71 @@ class Room:
                 pass
 
     def schedule_bot_if_needed(self):
+        if self.timeout_task and not self.timeout_task.done():
+            self.timeout_task.cancel()
+        self.turn_deadline = None
+
         if self.state != "playing":
             return
             
-        # Check if pending target requires bot action
+        # Check if pending target requires bot / auto-play action
         if self.pending_target:
             source = self.get_player(self.pending_target["source_id"])
-            if source and source.is_bot:
-                asyncio.create_task(self.run_bot_target_action(source))
+            if source:
+                if source.is_bot or source.is_auto_play:
+                    asyncio.create_task(self.run_bot_target_action(source))
+                else:
+                    self.turn_deadline = time.time() + INACTIVITY_TIMEOUT_SEC
+                    self.timeout_task = asyncio.create_task(
+                        self.watch_inactivity_timeout(source.id, self.turn_deadline)
+                    )
             return
             
         cur_p = self.current_player()
-        if cur_p and cur_p.is_bot and cur_p.round_status == "active":
-            asyncio.create_task(self.run_bot_turn(cur_p))
+        if cur_p and cur_p.round_status == "active":
+            if cur_p.is_bot or cur_p.is_auto_play:
+                asyncio.create_task(self.run_bot_turn(cur_p))
+            else:
+                self.turn_deadline = time.time() + INACTIVITY_TIMEOUT_SEC
+                self.timeout_task = asyncio.create_task(
+                    self.watch_inactivity_timeout(cur_p.id, self.turn_deadline)
+                )
+
+    async def watch_inactivity_timeout(self, player_id: str, deadline: float):
+        try:
+            delay = max(0.1, deadline - time.time())
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+
+        if self.state != "playing" or self.turn_deadline != deadline:
+            return
+
+        actor = self.get_active_actor()
+        if not actor or actor.id != player_id or actor.is_bot or actor.is_auto_play:
+            return
+
+        actor.is_auto_play = True
+        self.turn_deadline = None
+        self.log(f"🤖 {actor.name} 超过 {INACTIVITY_TIMEOUT_SEC} 秒未行动，已自动进入 AI 托管模式！")
+        self.broadcast_state()
+        self.schedule_bot_if_needed()
+
+    async def watch_recap_timeout(self, round_num: int, delay: float):
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        if self.state == "round_recap" and self.round_number == round_num:
+            self.log("🤖 自动开启下一轮...")
+            self.start_new_round()
+            self.broadcast_state()
 
     async def run_bot_target_action(self, bot: Player):
         await asyncio.sleep(random.uniform(1.0, 1.8))
         if not self.pending_target or self.pending_target["source_id"] != bot.id:
+            return
+        if not (bot.is_bot or bot.is_auto_play):
             return
             
         valid = self.pending_target["valid_targets"]
@@ -776,6 +867,8 @@ class Room:
         
         cur = self.current_player()
         if not cur or cur.id != bot.id or cur.round_status != "active" or self.state != "playing":
+            return
+        if not (bot.is_bot or bot.is_auto_play):
             return
             
         # Decision logic
@@ -875,10 +968,18 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
     mtype = msg.get("type")
     data = msg.get("data", {})
     
+    # 0. PING (Heartbeat for cloud WebSocket keep-alive)
+    if mtype == "PING":
+        client.send_text(json.dumps({"type": "PONG", "data": {"serverTime": time.time()}}))
+        await client.drain()
+        return
+
     # 1. CREATE_ROOM
     if mtype == "CREATE_ROOM":
-        player_name = data.get("name", "Host").strip() or "Player 1"
-        player_avatar = data.get("avatar", "👑")
+        rand_name, rand_avatar = generate_random_profile()
+        raw_name = data.get("name", "").strip()
+        player_name = raw_name if (raw_name and raw_name not in ["Player", "Host"]) else rand_name
+        player_avatar = data.get("avatar", "").strip() or rand_avatar
         target_score = int(data.get("targetScore", 200))
         raw_odds = data.get("showOdds", True)
         show_odds = bool(raw_odds) if isinstance(raw_odds, bool) else (str(raw_odds).lower() != 'false')
@@ -900,47 +1001,98 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
             "data": {
                 "roomCode": room_code,
                 "playerId": player_id,
+                "playerName": player_name,
+                "playerAvatar": player_avatar,
                 "state": room.to_dict(for_player_id=player_id)
             }
         }))
         await client.drain()
         
-    # 2. JOIN_ROOM
+    # 2. JOIN_ROOM (and Reconnect)
     elif mtype == "JOIN_ROOM":
         room_code = data.get("roomCode", "").strip().upper()
-        player_name = data.get("name", "Guest").strip() or "Guest"
-        player_avatar = data.get("avatar", "🎲")
+        raw_name = data.get("name", "").strip()
+        raw_avatar = data.get("avatar", "").strip()
         existing_player_id = data.get("playerId")
         
         room = ROOMS.get(room_code)
         if not room:
-            client.send_text(json.dumps({"type": "ERROR", "data": {"message": f"Room '{room_code}' not found."}}))
+            client.send_text(json.dumps({
+                "type": "ERROR",
+                "data": {
+                    "code": "ROOM_NOT_FOUND",
+                    "message": f"Room '{room_code}' not found."
+                }
+            }))
             await client.drain()
             return
             
-        # Check if reconnecting
+        # Check if reconnecting by playerId OR by disconnected player with matching name
         player = None
+        is_reconnected = False
         if existing_player_id:
             player = room.get_player(existing_player_id)
             if player:
+                is_reconnected = not player.is_connected
                 player.is_connected = True
-                player_id = existing_player_id
                 
+        if not player and raw_name:
+            # Fallback: if a human player with this exact name is currently disconnected, reclaim seat!
+            for p in room.players:
+                if not p.is_bot and not p.is_connected and p.name == raw_name:
+                    player = p
+                    is_reconnected = True
+                    player.is_connected = True
+                    break
+
         if not player:
             if room.state != "lobby":
-                client.send_text(json.dumps({"type": "ERROR", "data": {"message": "Game already in progress in this room."}}))
-                await client.drain()
-                return
+                # Also allow reclaiming if there is exactly 1 disconnected human seat in an active game
+                disconnected_humans = [p for p in room.players if not p.is_bot and not p.is_connected]
+                if len(disconnected_humans) == 1:
+                    player = disconnected_humans[0]
+                    is_reconnected = True
+                    player.is_connected = True
+                else:
+                    client.send_text(json.dumps({
+                        "type": "ERROR",
+                        "data": {
+                            "code": "GAME_IN_PROGRESS",
+                            "message": "Game already in progress in this room."
+                        }
+                    }))
+                    await client.drain()
+                    return
+
+        if not player:
             if len(room.players) >= 12:
                 client.send_text(json.dumps({"type": "ERROR", "data": {"message": "Room is full (max 12 players)."}}))
                 await client.drain()
                 return
                 
+            used_names = {p.name for p in room.players}
+            rand_name, rand_avatar = generate_random_profile(used_names)
+            player_name = raw_name if (raw_name and raw_name not in ["Player", "Guest"]) else rand_name
+            if player_name in used_names:
+                suffix = 2
+                while f"{player_name}_{suffix}" in used_names:
+                    suffix += 1
+                player_name = f"{player_name}_{suffix}"
+            player_avatar = raw_avatar or rand_avatar
+
             player_id = f"p_{int(time.time()*1000)}_{random.randint(100, 999)}"
             player = Player(player_id, player_name, player_avatar)
             room.players.append(player)
             room.log(f"👋 {player.name} joined the room!")
-            
+        elif is_reconnected:
+            room.log(f"🔌 {player.name} 断线重连回到了牌桌！")
+
+        old_client = room.clients.get(player.id)
+        if old_client and old_client is not client:
+            old_client.player_id = None
+            old_client.room_code = None
+            old_client.close()
+
         room.clients[player.id] = client
         client.player_id = player.id
         client.room_code = room_code
@@ -950,11 +1102,41 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
             "data": {
                 "roomCode": room_code,
                 "playerId": player.id,
+                "playerName": player.name,
+                "playerAvatar": player.avatar,
+                "reconnected": is_reconnected,
                 "state": room.to_dict(for_player_id=player.id)
             }
         }))
         await client.drain()
         room.broadcast_state()
+
+    # 2b. LEAVE_ROOM (Intentional leave)
+    elif mtype == "LEAVE_ROOM":
+        room = ROOMS.get(client.room_code or "")
+        pid = client.player_id
+        client.room_code = None
+        client.player_id = None
+        if room and pid:
+            room.clients.pop(pid, None)
+            p = room.get_player(pid)
+            if p:
+                if room.state == "lobby":
+                    room.players = [pl for pl in room.players if pl.id != pid]
+                    room.log(f"👋 {p.name} left the table.")
+                    if room.host_id == pid:
+                        humans = [pl for pl in room.players if not pl.is_bot]
+                        if humans:
+                            room.host_id = humans[0].id
+                        else:
+                            ROOMS.pop(room.code, None)
+                            return
+                else:
+                    p.is_connected = False
+                    p.is_auto_play = True
+                    room.log(f"🚪 {p.name} 离开了房间，已交由 AI 托管。")
+                    room.schedule_bot_if_needed()
+                room.broadcast_state()
         
     # 3. ADD_BOT
     elif mtype == "ADD_BOT":
@@ -1027,6 +1209,9 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
         cur = room.current_player()
         if not cur or cur.id != client.player_id:
             return
+        if cur.is_auto_play:
+            cur.is_auto_play = False
+            room.log(f"👤 {cur.name} 恢复了手动操作。")
         room.handle_hit(cur)
         room.broadcast_state()
 
@@ -1038,6 +1223,9 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
         cur = room.current_player()
         if not cur or cur.id != client.player_id:
             return
+        if cur.is_auto_play:
+            cur.is_auto_play = False
+            room.log(f"👤 {cur.name} 恢复了手动操作。")
         room.handle_stay(cur)
         room.broadcast_state()
 
@@ -1049,8 +1237,30 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
             return
         if room.pending_target["source_id"] != client.player_id:
             return
+        p = room.get_player(client.player_id or "")
+        if p and p.is_auto_play:
+            p.is_auto_play = False
+            room.log(f"👤 {p.name} 恢复了手动操作。")
         room.resolve_target_selection(target_id)
         room.broadcast_state()
+
+    # 9b. SET_AUTO_PLAY (Manual toggle or resume from AI takeover)
+    elif mtype == "SET_AUTO_PLAY":
+        room = ROOMS.get(client.room_code or "")
+        if not room:
+            return
+        p = room.get_player(client.player_id or "")
+        if not p or p.is_bot:
+            return
+        enabled = bool(data.get("enabled", False))
+        if p.is_auto_play != enabled:
+            p.is_auto_play = enabled
+            if enabled:
+                room.log(f"🤖 {p.name} 开启了 AI 托管模式。")
+            else:
+                room.log(f"👤 {p.name} 取消了 AI 托管，恢复手动操作。")
+            room.schedule_bot_if_needed()
+            room.broadcast_state()
 
     # 10. NEXT_ROUND
     elif mtype == "NEXT_ROUND":
@@ -1231,11 +1441,11 @@ async def client_handler(reader: asyncio.StreamReader, writer: asyncio.StreamWri
             ws_client.close()
             if ws_client.room_code and ws_client.player_id:
                 room = ROOMS.get(ws_client.room_code)
-                if room:
+                if room and room.clients.get(ws_client.player_id) is ws_client:
                     p = room.get_player(ws_client.player_id)
                     if p:
                         p.is_connected = False
-                        room.log(f"🔌 {p.name} disconnected.")
+                        room.log(f"🔌 {p.name} 断开连接，等待重连...")
                         room.broadcast_state()
     else:
         # Standard HTTP file request

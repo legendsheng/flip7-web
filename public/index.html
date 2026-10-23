@@ -28,6 +28,15 @@
       </div>
     </header>
 
+    <!-- Network Reconnect Banner & Toast -->
+    <div id="reconnect-banner" class="reconnect-banner hidden">
+      <span id="reconnect-text" data-i18n="reconnectingText">📡 网络连接断开，正在自动重连回牌桌...</span>
+      <button id="btn-reconnect-now" class="btn btn-sm btn-primary" data-i18n="reconnectNowBtn">立即重连</button>
+    </div>
+    <div id="reconnect-toast" class="reconnect-toast hidden" data-i18n="reconnectedToast">
+      ✅ 断线重连成功！已回到牌桌
+    </div>
+
     <!-- Main Screens Container -->
     <main class="main-content">
 
@@ -53,7 +62,8 @@
               <div class="avatar-select" id="avatar-trigger" data-i18n-title="changeAvatar" title="更换头像">
                 <span id="selected-avatar">🦊</span>
               </div>
-              <input type="text" id="player-name-input" maxlength="15" placeholder="Player" value="Player">
+              <input type="text" id="player-name-input" maxlength="15" placeholder="Player" value="">
+              <button type="button" id="btn-random-profile" class="btn-random-profile" data-i18n="randomProfileBtn" data-i18n-title="randomProfileTitle" title="随机生成昵称与头像">🎲 随机</button>
             </div>
             <!-- Avatar Picker Dropdown -->
             <div id="avatar-picker" class="avatar-picker hidden">
@@ -69,6 +79,12 @@
               <span class="avatar-opt">👑</span>
               <span class="avatar-opt">🍀</span>
               <span class="avatar-opt">🔥</span>
+              <span class="avatar-opt">🐯</span>
+              <span class="avatar-opt">🦄</span>
+              <span class="avatar-opt">🐙</span>
+              <span class="avatar-opt">🦉</span>
+              <span class="avatar-opt">🦈</span>
+              <span class="avatar-opt">🐺</span>
             </div>
           </div>
 
@@ -220,6 +236,7 @@
               </div>
               <div class="turn-prompt-badge" id="turn-prompt-badge">
                 <span data-i18n="currentTurnPrefix">当前行动: </span><strong id="turn-player-name">--</strong>
+                <span id="turn-timer-badge" class="turn-timer-badge hidden" data-i18n-title="turnTimerTitle" title="行动倒计时（超过60秒未操作将自动进入AI托管）">⏳ 60s</span>
               </div>
               <div class="goal-badge">
                 <span data-i18n="targetLabel">目标: </span><span id="game-target-score">200</span> pts
@@ -294,7 +311,10 @@
                   <span class="my-avatar" id="my-avatar">🦊</span>
                   <div class="my-name-col">
                     <span class="my-name" id="my-name">玩家</span>
-                    <span class="my-status-pill" id="my-status-pill">进行中</span>
+                    <div class="my-status-row">
+                      <span class="my-status-pill" id="my-status-pill">进行中</span>
+                      <button type="button" id="btn-toggle-autoplay" class="btn-autoplay-toggle" data-i18n="enableAutoPlayBtn">🤖 开启托管</button>
+                    </div>
                   </div>
                 </div>
                 
@@ -324,6 +344,12 @@
                     <span class="empty-hint" data-i18n="none">无</span>
                   </div>
                 </div>
+              </div>
+
+              <!-- AI Auto-Play Takeover Banner -->
+              <div id="autoplay-banner" class="autoplay-banner hidden">
+                <span data-i18n="autoPlayBannerText">🤖 当前处于 AI 自动托管状态（超时未行动或手动开启）</span>
+                <button type="button" id="btn-resume-manual" class="btn btn-sm btn-primary" data-i18n="resumeManualBtn">👤 恢复手动操作</button>
               </div>
 
               <!-- Action Controls -->
