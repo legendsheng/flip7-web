@@ -1465,6 +1465,7 @@
         }
 
         state.animatingCard = res.card;
+        state.animatingPlayerId = res.player;
         renderLocalState();
         if (el.revealedCardContainer) {
           el.revealedCardContainer.classList.remove('card-reveal-pop');
@@ -1472,8 +1473,8 @@
           el.revealedCardContainer.classList.add('card-reveal-pop');
         }
 
-        // Show card clearly in center for 400ms
-        await new Promise(r => setTimeout(r, 400));
+        // Show card clearly in center for 320ms before taking off
+        await new Promise(r => setTimeout(r, 320));
 
         if (state.localGame === g) {
           await animateCenterCardFlyToWebBoard(res.card);
@@ -1482,6 +1483,7 @@
         // Pending action
         sfx.playCardFlip();
         state.animatingCard = null;
+        state.animatingPlayerId = null;
         renderLocalState();
         await new Promise(r => setTimeout(r, 650));
       }
@@ -1498,6 +1500,7 @@
     } finally {
       if (g) g.isProcessing = false;
       state.animatingCard = null;
+      state.animatingPlayerId = null;
       renderLocalState();
       if (g && g.state === 'playing') {
         if (g.pendingTarget) g.checkBotTarget();
@@ -1670,6 +1673,7 @@
 
   async function animateCenterCardFlyToWebBoard(card) {
     if (!card) return;
+    document.querySelectorAll('.flying-card-anim').forEach(node => node.remove());
     const isNumber = (card.type === 'number');
     const targetContainer = isNumber ? el.myNumberCards : el.mySpecialCards;
     if (!targetContainer) return;
@@ -1692,6 +1696,9 @@
 
     if (srcRect.width === 0 || targetRect.width === 0) {
       state.animatingCard = null;
+      state.animatingPlayerId = null;
+      if (state.localGame) state.localGame.lastCardDrawn = null;
+      if (state.roomData) state.roomData.lastCardDrawn = null;
       if (state.isLocalMode) renderLocalState();
       else if (state.roomData) renderGameTable(state.roomData);
       return;
@@ -1714,11 +1721,13 @@
     });
     document.body.appendChild(flyer);
 
-    // 4. CLEAR center card spot so user sees the card physically taking off!
+    // 4. CLEAR center card spot so user sees only ONE card physically taking off!
+    state.isCardFlyingInAir = true;
     el.revealedCardContainer.classList.add('hidden');
     el.revealedCardContainer.innerHTML = '';
     el.lastCardPlaceholder.classList.remove('hidden');
     if (state.localGame) state.localGame.lastCardDrawn = null;
+    if (state.roomData) state.roomData.lastCardDrawn = null;
 
     // 5. Calculate trajectory and scale down to hand size
     const dx = targetRect.left - srcRect.left;
@@ -1741,7 +1750,7 @@
         opacity: 1
       }
     ], {
-      duration: 520,
+      duration: 500,
       easing: 'cubic-bezier(0.2, 0.8, 0.25, 1)',
       fill: 'forwards'
     });
@@ -1754,7 +1763,9 @@
     });
 
     // 6. Dock the card into hand
+    state.isCardFlyingInAir = false;
     state.animatingCard = null;
+    state.animatingPlayerId = null;
     if (state.isLocalMode) renderLocalState();
     else if (state.roomData) renderGameTable(state.roomData);
 
@@ -1768,11 +1779,12 @@
     setTimeout(() => el.myHandScore.classList.remove('score-pop'), 400);
 
     // Wait a brief moment to see card docked
-    await new Promise(r => setTimeout(r, 320));
+    await new Promise(r => setTimeout(r, 280));
   }
 
   async function animateCenterCardFlyToOpponent(card, opponentId) {
     if (!card || !opponentId) return;
+    document.querySelectorAll('.flying-card-anim').forEach(node => node.remove());
     const seats = el.otherPlayersArena.querySelectorAll('.opponent-seat');
     let targetSeat = null;
     if (state.roomData && state.roomData.players) {
@@ -1780,12 +1792,28 @@
       if (oppIdx !== -1 && seats[oppIdx]) targetSeat = seats[oppIdx];
     }
     if (!targetSeat && seats.length > 0) targetSeat = seats[0];
-    if (!targetSeat) return;
+    if (!targetSeat) {
+      state.animatingCard = null;
+      state.animatingPlayerId = null;
+      if (state.roomData) {
+        state.roomData.lastCardDrawn = null;
+        renderGameTable(state.roomData);
+      }
+      return;
+    }
 
     const targetRect = targetSeat.getBoundingClientRect();
     const centerCard = el.revealedCardContainer.querySelector('.game-card') || el.revealedCardContainer;
     const srcRect = centerCard.getBoundingClientRect();
-    if (srcRect.width === 0 || targetRect.width === 0) return;
+    if (srcRect.width === 0 || targetRect.width === 0) {
+      state.animatingCard = null;
+      state.animatingPlayerId = null;
+      if (state.roomData) {
+        state.roomData.lastCardDrawn = null;
+        renderGameTable(state.roomData);
+      }
+      return;
+    }
 
     const flyer = centerCard.cloneNode(true);
     flyer.className = centerCard.className + ' flying-card-anim';
@@ -1803,9 +1831,11 @@
     });
     document.body.appendChild(flyer);
 
+    state.isCardFlyingInAir = true;
     el.revealedCardContainer.classList.add('hidden');
     el.revealedCardContainer.innerHTML = '';
     el.lastCardPlaceholder.classList.remove('hidden');
+    if (state.roomData) state.roomData.lastCardDrawn = null;
 
     const dx = targetRect.left + (targetRect.width - 50) / 2 - srcRect.left;
     const dy = targetRect.top + 20 - srcRect.top;
@@ -1816,7 +1846,7 @@
       { transform: `translate(${dx * 0.45}px, ${dy * 0.45 - 20}px) scale(${1 + (scale - 1) * 0.3}) rotate(-3deg)`, opacity: 1, offset: 0.45 },
       { transform: `translate(${dx}px, ${dy}px) scale(${scale}, ${scale}) rotate(0deg)`, opacity: 0.9 }
     ], {
-      duration: 480,
+      duration: 460,
       easing: 'cubic-bezier(0.2, 0.8, 0.25, 1)',
       fill: 'forwards'
     });
@@ -1824,11 +1854,23 @@
     await new Promise(r => {
       anim.onfinish = () => {
         flyer.remove();
-        targetSeat.classList.add('card-just-landed');
-        setTimeout(() => targetSeat.classList.remove('card-just-landed'), 380);
         r();
       };
     });
+
+    state.isCardFlyingInAir = false;
+    state.animatingCard = null;
+    state.animatingPlayerId = null;
+    if (state.roomData) renderGameTable(state.roomData);
+
+    const landedSeats = el.otherPlayersArena.querySelectorAll('.opponent-seat');
+    if (state.roomData && state.roomData.players) {
+      const oppIdx = state.roomData.players.findIndex(p => p.id === opponentId);
+      if (oppIdx !== -1 && landedSeats[oppIdx]) {
+        landedSeats[oppIdx].classList.add('card-just-landed');
+        setTimeout(() => landedSeats[oppIdx].classList.remove('card-just-landed'), 380);
+      }
+    }
   }
 
   function syncHandCards(container, cardItems, isNumbers, playerId) {
@@ -1877,6 +1919,37 @@
   }
 
   function renderGameTable(room) {
+    // Detect newly drawn online card BEFORE rendering seats or hand so it is not duplicated!
+    let pendingOnlineFlight = null;
+    if (!state.isLocalMode && room.lastDrawResult && room.lastDrawResult.card && room.lastDrawResult.card.id !== state.lastSeenDrawId) {
+      state.lastSeenDrawId = room.lastDrawResult.card.id;
+      state.isCardFlyingInAir = false;
+      document.querySelectorAll('.flying-card-anim').forEach(node => node.remove());
+      const out = room.lastDrawResult.outcome;
+      if (out === 'busted') sfx.playBust();
+      else if (out === 'shield_saved') sfx.playShieldSave();
+      else if (out === 'pending_freeze') sfx.playFreeze();
+      else if (out === 'flip_seven') {
+        sfx.playFlipSeven();
+        confetti.explode(160);
+      } else {
+        sfx.playCardFlip();
+      }
+
+      const isSafe = (out === 'safe_number' || out === 'modifier' || out === 'shield_gained' || out === 'second_chance_gained');
+      if (isSafe) {
+        state.animatingCard = room.lastDrawResult.card;
+        state.animatingPlayerId = room.lastDrawResult.player;
+        pendingOnlineFlight = {
+          card: room.lastDrawResult.card,
+          playerId: room.lastDrawResult.player
+        };
+      } else {
+        state.animatingCard = null;
+        state.animatingPlayerId = null;
+      }
+    }
+
     el.gameRoundNum.textContent = room.roundNumber;
     el.gameTargetScore.textContent = room.targetScore;
 
@@ -1926,7 +1999,7 @@
       let modifiersToShow = [...myPlayer.modifierCards];
       let hasSecondChanceToShow = myPlayer.hasSecondChance;
 
-      if (state.animatingCard) {
+      if (state.animatingCard && (!state.animatingPlayerId || state.animatingPlayerId === myPlayer.id)) {
         if (state.animatingCard.type === 'number') {
           const idx = numbersToShow.lastIndexOf(state.animatingCard.value);
           if (idx !== -1) numbersToShow.splice(idx, 1);
@@ -1998,31 +2071,29 @@
     }
 
     // Last Drawn Card Slot
-    const cardToShowInCenter = state.animatingCard || room.lastCardDrawn;
+    const cardToShowInCenter = state.isCardFlyingInAir ? null : (state.animatingCard || room.lastCardDrawn);
     if (cardToShowInCenter) {
       el.lastCardPlaceholder.classList.add('hidden');
       el.revealedCardContainer.classList.remove('hidden');
       el.revealedCardContainer.innerHTML = renderCardLargeHTML(cardToShowInCenter);
 
-      if (!state.isLocalMode && room.lastDrawResult && room.lastDrawResult.card && room.lastDrawResult.card.id !== state.lastSeenDrawId) {
-        state.lastSeenDrawId = room.lastDrawResult.card.id;
-        const out = room.lastDrawResult.outcome;
-        if (out === 'busted') sfx.playBust();
-        else if (out === 'shield_saved') sfx.playShieldSave();
-        else if (out === 'pending_freeze') sfx.playFreeze();
-        else if (out === 'flip_seven') {
-          sfx.playFlipSeven();
-          confetti.explode(160);
-        } else {
-          sfx.playCardFlip();
+      if (pendingOnlineFlight) {
+        if (el.revealedCardContainer) {
+          el.revealedCardContainer.classList.remove('card-reveal-pop');
+          void el.revealedCardContainer.offsetWidth;
+          el.revealedCardContainer.classList.add('card-reveal-pop');
         }
-
-        const isSafe = (out === 'safe_number' || out === 'modifier' || out === 'shield_gained' || out === 'second_chance_gained');
-        if (isSafe && room.lastDrawResult.player === state.playerId) {
-          animateCenterCardFlyToWebBoard(room.lastDrawResult.card);
-        } else if (isSafe && room.lastDrawResult.player !== state.playerId) {
-          animateCenterCardFlyToOpponent(room.lastDrawResult.card, room.lastDrawResult.player);
-        }
+        const flightCard = pendingOnlineFlight.card;
+        const flightPid = pendingOnlineFlight.playerId;
+        setTimeout(() => {
+          if (state.animatingCard && state.animatingCard.id === flightCard.id) {
+            if (flightPid === state.playerId) {
+              animateCenterCardFlyToWebBoard(flightCard);
+            } else {
+              animateCenterCardFlyToOpponent(flightCard, flightPid);
+            }
+          }
+        }, 280);
       }
     } else {
       el.lastCardPlaceholder.classList.remove('hidden');
@@ -2039,18 +2110,33 @@
       const isFrozen = (p.roundStatus === 'frozen');
       const isStayed = (p.roundStatus === 'stayed');
 
+      let seatNums = [...p.numberCards];
+      let seatMods = [...p.modifierCards];
+      let seatHeart = p.hasSecondChance;
+      if (state.animatingCard && state.animatingPlayerId === p.id) {
+        if (state.animatingCard.type === 'number') {
+          const idx = seatNums.lastIndexOf(state.animatingCard.value);
+          if (idx !== -1) seatNums.splice(idx, 1);
+        } else if (state.animatingCard.type === 'modifier') {
+          const idx = seatMods.findLastIndex ? seatMods.findLastIndex(m => m.id === state.animatingCard.id) : (seatMods.length - 1);
+          if (idx !== -1) seatMods.splice(idx, 1);
+        } else if (state.animatingCard.type === 'action' && state.animatingCard.action === 'second_chance') {
+          seatHeart = false;
+        }
+      }
+
       let cardsMiniHTML = '';
-      if (p.hasSecondChance) {
+      if (seatHeart) {
         cardsMiniHTML += `<div class="mini-card mini-heart" title="${window.t('extraLifeTitle') || 'Extra Life'}">❤️</div>`;
       }
-      p.numberCards.forEach(n => {
+      seatNums.forEach(n => {
         cardsMiniHTML += `<div class="mini-card mini-num-${n}">${n}</div>`;
       });
       if (isBusted && p.bustedCard) {
         const bVal = (p.bustedCard.value !== undefined) ? p.bustedCard.value : (p.bustedCard.name || '?');
         cardsMiniHTML += `<div class="mini-card mini-busted" title="${window.t('bustedCardTooltip')} ${bVal}">💥${bVal}</div>`;
       }
-      p.modifierCards.forEach(m => {
+      seatMods.forEach(m => {
         const isX2 = (m.name === 'x2');
         cardsMiniHTML += `<div class="mini-card ${isX2 ? 'mini-x2' : 'mini-mod'}">${m.name}</div>`;
       });

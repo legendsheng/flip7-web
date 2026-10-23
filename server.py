@@ -634,6 +634,7 @@ class Room:
         if player.round_status != "active":
             return {"success": False, "error": "Player is not active"}
             
+        self.last_card_drawn = None
         player.round_status = "stayed"
         pts = player.compute_round_score()
         self.log(f"🛑 {player.name} stayed and banked {pts} points!")
