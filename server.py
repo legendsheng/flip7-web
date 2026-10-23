@@ -767,17 +767,25 @@ class Room:
     def calculate_deck_stats(self, for_player: Optional[Player]) -> Dict[str, Any]:
         """Calculates probabilities and card counts."""
         total_remaining = len(self.deck)
-        if total_remaining == 0:
-            return {"remaining": 0, "bustRisk": 0, "numbersCount": 0}
+        # If draw deck is empty, next draw will reshuffle discard_pile
+        source_pile = self.deck if total_remaining > 0 else self.discard_pile
+        effective_total = len(source_pile)
+        if effective_total == 0:
+            return {
+                "totalRemaining": 0,
+                "discardCount": len(self.discard_pile),
+                "duplicatesInDeck": 0,
+                "bustRiskPct": 0
+            }
             
         duplicates_count = 0
         if for_player and for_player.number_cards:
             user_nums = set(for_player.number_cards)
-            for c in self.deck:
+            for c in source_pile:
                 if c["type"] == "number" and c["value"] in user_nums:
                     duplicates_count += 1
                     
-        bust_pct = round((duplicates_count / total_remaining) * 100, 1) if total_remaining > 0 else 0
+        bust_pct = round((duplicates_count / effective_total) * 100, 1) if effective_total > 0 else 0
         return {
             "totalRemaining": total_remaining,
             "discardCount": len(self.discard_pile),
@@ -951,7 +959,7 @@ class Room:
             
         # Decision logic
         deck_stats = self.calculate_deck_stats(bot)
-        bust_risk = deck_stats["bustRiskPct"]
+        bust_risk = deck_stats.get("bustRiskPct", 0)
         num_cards = len(bot.number_cards)
         pts = bot.compute_round_score()
         
