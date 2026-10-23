@@ -671,9 +671,11 @@
       history.replaceState(null, '', `?room=${data.roomCode}`);
 
       if (el.reconnectBanner) el.reconnectBanner.classList.add('hidden');
-      if (data.reconnected || state.wasInRoomBeforeDisconnect) {
+      if (type === 'ROOM_JOINED' && (data.reconnected || state.wasInRoomBeforeDisconnect)) {
         state.wasInRoomBeforeDisconnect = false;
         showReconnectToast();
+      } else {
+        state.wasInRoomBeforeDisconnect = false;
       }
       updateGameState(data.state);
     } else if (type === 'STATE_UPDATE') {
@@ -1950,7 +1952,7 @@
       const statusKey = `status${myPlayer.roundStatus.charAt(0).toUpperCase() + myPlayer.roundStatus.slice(1)}`;
       el.myStatusPill.textContent = window.t(statusKey);
 
-      // AI Auto-Play Toggle & Banner
+      // AI Auto-Play Toggle (開啟托管 / 取消托管)
       if (el.btnToggleAutoplay) {
         if (myPlayer.isBot) {
           el.btnToggleAutoplay.classList.add('hidden');
@@ -1958,13 +1960,6 @@
           el.btnToggleAutoplay.classList.remove('hidden');
           el.btnToggleAutoplay.classList.toggle('is-active', !!myPlayer.isAutoPlay);
           el.btnToggleAutoplay.textContent = myPlayer.isAutoPlay ? window.t('disableAutoPlayBtn') : window.t('enableAutoPlayBtn');
-        }
-      }
-      if (el.autoplayBanner) {
-        if (!myPlayer.isBot && myPlayer.isAutoPlay) {
-          el.autoplayBanner.classList.remove('hidden');
-        } else {
-          el.autoplayBanner.classList.add('hidden');
         }
       }
 
@@ -2704,13 +2699,6 @@
     });
   }
 
-  if (el.btnResumeManual) {
-    el.btnResumeManual.addEventListener('click', () => {
-      sfx.playClick();
-      sendWS('SET_AUTO_PLAY', { enabled: false });
-    });
-  }
-
   // Room List Modal Buttons
   if (el.btnRoomList) {
     el.btnRoomList.addEventListener('click', () => {
@@ -2987,7 +2975,6 @@
       state.playerAvatar = savedSess.avatar || state.playerAvatar;
       el.playerNameInput.value = state.playerName;
       el.selectedAvatar.textContent = state.playerAvatar;
-      state.wasInRoomBeforeDisconnect = true;
       connectWebSocket(() => {
         sendWS('JOIN_ROOM', {
           roomCode: roomParam,

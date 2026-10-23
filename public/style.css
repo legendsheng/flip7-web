@@ -2741,6 +2741,10 @@ body[data-theme="celestial"] .game-card.card-num-7 {
   transform: scale(0.96);
 }
 
+.hidden {
+  display: none !important;
+}
+
 /* Reconnect Banner & Toast */
 .reconnect-banner {
   display: flex;
