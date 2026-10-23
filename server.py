@@ -309,6 +309,7 @@ class Room:
         self.timeout_task: Optional[asyncio.Task] = None
         self.empty_destroy_task: Optional[asyncio.Task] = None
         self.turn_deadline: Optional[float] = None
+        self.recap_deadline: Optional[float] = None
         self.created_at: float = time.time()
         self.is_destroyed: bool = False
 
@@ -449,6 +450,10 @@ class Room:
         self.start_new_round()
 
     def start_new_round(self):
+        if self.timeout_task and not self.timeout_task.done():
+            self.timeout_task.cancel()
+        self.recap_deadline = None
+        self.turn_deadline = None
         self.round_number += 1
         self.state = "playing"
         self.last_card_drawn = None
@@ -477,6 +482,7 @@ class Room:
         if self.timeout_task and not self.timeout_task.done():
             self.timeout_task.cancel()
         self.turn_deadline = None
+        self.recap_deadline = None
         self.state = "round_recap"
         recap_info = []
         for p in self.players:
@@ -497,9 +503,9 @@ class Room:
             # Rotate dealer
             if self.players:
                 self.dealer_index = (self.dealer_index + 1) % len(self.players)
-            # If host is in auto-play or disconnected, auto-advance next round after 6s (or 60s timeout)
-            host_p = self.get_player(self.host_id)
-            recap_delay = 5.0 if (host_p and (host_p.is_auto_play or not host_p.is_connected)) else float(INACTIVITY_TIMEOUT_SEC)
+            # 10s auto-start next round countdown if dealer/host does not click Next Round
+            recap_delay = 10.0
+            self.recap_deadline = time.time() + recap_delay
             self.timeout_task = asyncio.create_task(self.watch_recap_timeout(self.round_number, recap_delay))
 
     def handle_hit(self, player: Player) -> Dict[str, Any]:
@@ -817,6 +823,7 @@ class Room:
             "currentTurnPlayerId": cur_p.id if cur_p else None,
             "activeActorId": actor.id if actor else None,
             "turnDeadline": self.turn_deadline,
+            "recapDeadline": self.recap_deadline,
             "serverTime": time.time(),
             "players": [p.to_dict() for p in self.players],
             "lastCardDrawn": self.last_card_drawn,
@@ -892,8 +899,8 @@ class Room:
             await asyncio.sleep(delay)
         except asyncio.CancelledError:
             return
-        if self.state == "round_recap" and self.round_number == round_num:
-            self.log("🤖 自动开启下一轮...")
+        if not self.is_destroyed and self.state == "round_recap" and self.round_number == round_num and self.has_connected_humans():
+            self.log("⏱️ 10秒倒计时结束，自动开启下一轮！")
             self.start_new_round()
             self.broadcast_state()
 
@@ -1444,7 +1451,8 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
         room = ROOMS.get(client.room_code or "")
         if not room or room.state != "round_recap":
             return
-        if room.host_id != client.player_id:
+        dealer_id = room.players[room.dealer_index].id if room.players else None
+        if room.host_id != client.player_id and dealer_id != client.player_id:
             return
         room.start_new_round()
         room.broadcast_state()

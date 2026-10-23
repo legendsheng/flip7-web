@@ -960,6 +960,8 @@
     }
 
     startNewRound() {
+      clearTimeout(this.recapAutoTimer);
+      this.recapDeadline = null;
       this.roundNumber += 1;
       this.state = 'playing';
       this.lastCardDrawn = null;
@@ -1264,7 +1266,9 @@
 
     endRound(reason = '') {
       clearTimeout(this.inactivityTimer);
+      clearTimeout(this.recapAutoTimer);
       this.turnDeadline = null;
+      this.recapDeadline = null;
       this.state = 'round_recap';
       this.players.forEach(p => {
         const pts = this.computeScore(p);
@@ -1280,6 +1284,14 @@
         this.log(window.t('logGameOver', this.winner.name, this.winner.totalScore));
       } else {
         this.dealerIndex = (this.dealerIndex + 1) % this.players.length;
+        const rNum = this.roundNumber;
+        this.recapDeadline = (Date.now() / 1000) + 10;
+        this.recapAutoTimer = setTimeout(() => {
+          if (this.state === 'round_recap' && this.roundNumber === rNum) {
+            this.startNewRound();
+            renderLocalState();
+          }
+        }, 10000);
       }
     }
 
@@ -1413,6 +1425,7 @@
         dealerId: this.players[this.dealerIndex].id,
         currentTurnPlayerId: cur ? cur.id : null,
         turnDeadline: this.turnDeadline,
+        recapDeadline: this.recapDeadline,
         serverTime: Date.now() / 1000,
         players: this.players,
         lastCardDrawn: this.lastCardDrawn,
@@ -1571,15 +1584,30 @@
   // ============================================================================
 
   function updateTurnTimerUI() {
-    if (!el.turnTimerBadge) return;
-    if (!state.roomData || state.roomData.state !== 'playing' || !state.turnDeadlineLocal) {
-      el.turnTimerBadge.classList.add('hidden');
-      return;
+    if (el.turnTimerBadge) {
+      if (!state.roomData || state.roomData.state !== 'playing' || !state.turnDeadlineLocal) {
+        el.turnTimerBadge.classList.add('hidden');
+      } else {
+        const rem = Math.max(0, Math.ceil((state.turnDeadlineLocal - Date.now()) / 1000));
+        el.turnTimerBadge.classList.remove('hidden');
+        el.turnTimerBadge.textContent = `⏳ ${rem}s`;
+        el.turnTimerBadge.className = 'turn-timer-badge ' + (rem <= 10 ? 'timer-danger' : (rem <= 20 ? 'timer-warn' : ''));
+      }
     }
-    const rem = Math.max(0, Math.ceil((state.turnDeadlineLocal - Date.now()) / 1000));
-    el.turnTimerBadge.classList.remove('hidden');
-    el.turnTimerBadge.textContent = `⏳ ${rem}s`;
-    el.turnTimerBadge.className = 'turn-timer-badge ' + (rem <= 10 ? 'timer-danger' : (rem <= 20 ? 'timer-warn' : ''));
+
+    // 10s Auto-Next-Round Countdown in Round Recap Modal
+    if (state.roomData && state.roomData.state === 'round_recap' && state.recapDeadlineLocal) {
+      const remRecap = Math.max(0, Math.ceil((state.recapDeadlineLocal - Date.now()) / 1000));
+      const isZh = (window.getCurrentLanguage() === 'zh');
+      if (el.btnNextRound) {
+        el.btnNextRound.textContent = isZh ? `下一轮 (${remRecap}s) ➡️` : `Next Round (${remRecap}s) ➡️`;
+      }
+      if (el.recapGuestNotice) {
+        el.recapGuestNotice.textContent = isZh
+          ? `⏱️ ${remRecap} 秒后自动开启下一轮（或由庄家/房主立即开启）...`
+          : `⏱️ Next round starts automatically in ${remRecap}s...`;
+      }
+    }
   }
 
   setInterval(updateTurnTimerUI, 500);
@@ -1591,6 +1619,12 @@
       state.turnDeadlineLocal = Date.now() + Math.max(0, remainingMs);
     } else {
       state.turnDeadlineLocal = null;
+    }
+    if (room.recapDeadline && room.serverTime && room.state === 'round_recap') {
+      const remainingRecapMs = (room.recapDeadline - room.serverTime) * 1000;
+      state.recapDeadlineLocal = Date.now() + Math.max(0, remainingRecapMs);
+    } else {
+      state.recapDeadlineLocal = null;
     }
     updateTurnTimerUI();
 
@@ -2526,13 +2560,15 @@
       `;
     }).join('');
 
-    if (state.isHost) {
+    const canStartNext = state.isHost || (room.dealerId === state.playerId);
+    if (canStartNext) {
       el.btnNextRound.classList.remove('hidden');
       el.recapGuestNotice.classList.add('hidden');
     } else {
       el.btnNextRound.classList.add('hidden');
       el.recapGuestNotice.classList.remove('hidden');
     }
+    updateTurnTimerUI();
   }
 
   function renderGameOver(room) {
