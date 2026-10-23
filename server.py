@@ -229,6 +229,7 @@ class Player:
         self.total_score = 0
         self.is_connected = True
         self.is_auto_play = False
+        self.joined_at = time.time()
         
         # Round state
         self.round_status = "active" # "active", "stayed", "frozen", "busted"
@@ -306,7 +307,84 @@ class Room:
         self.clients: Dict[str, Any] = {} # player_id -> WebSocketClient
         self.bot_task: Optional[asyncio.Task] = None
         self.timeout_task: Optional[asyncio.Task] = None
+        self.empty_destroy_task: Optional[asyncio.Task] = None
         self.turn_deadline: Optional[float] = None
+        self.created_at: float = time.time()
+        self.is_destroyed: bool = False
+
+    def has_any_humans(self) -> bool:
+        return any(not p.is_bot for p in self.players)
+
+    def has_connected_humans(self) -> bool:
+        return any(not p.is_bot and p.is_connected for p in self.players)
+
+    def destroy(self):
+        if self.is_destroyed:
+            return
+        self.is_destroyed = True
+        self.state = "destroyed"
+        for task in (self.timeout_task, self.bot_task, self.empty_destroy_task):
+            if task and not task.done():
+                task.cancel()
+        self.timeout_task = None
+        self.bot_task = None
+        self.empty_destroy_task = None
+        self.clients.clear()
+        ROOMS.pop(self.code, None)
+
+    def check_empty_and_cleanup(self, immediate_if_no_connected: bool = False) -> bool:
+        if self.is_destroyed:
+            return True
+        if not self.has_any_humans():
+            self.destroy()
+            return True
+        if not self.has_connected_humans():
+            if immediate_if_no_connected:
+                self.destroy()
+                return True
+            # Pause active timers/bots while 0 humans are connected
+            if self.timeout_task and not self.timeout_task.done():
+                self.timeout_task.cancel()
+            self.turn_deadline = None
+            if not self.empty_destroy_task or self.empty_destroy_task.done():
+                # Give 15s grace period for F5 page refresh; if nobody reconnects, destroy room
+                self.empty_destroy_task = asyncio.create_task(self.watch_empty_room_destroy(15.0))
+            return False
+        else:
+            if self.empty_destroy_task and not self.empty_destroy_task.done():
+                self.empty_destroy_task.cancel()
+                self.empty_destroy_task = None
+            return False
+
+    async def watch_empty_room_destroy(self, delay: float = 15.0):
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        if not self.is_destroyed and not self.has_connected_humans():
+            self.destroy()
+
+    def to_summary_dict(self) -> Dict[str, Any]:
+        host_p = self.get_player(self.host_id) or (self.players[0] if self.players else None)
+        humans = [p for p in self.players if not p.is_bot]
+        connected_humans = [p for p in humans if p.is_connected]
+        bots = [p for p in self.players if p.is_bot]
+        return {
+            "roomCode": self.code,
+            "state": self.state,
+            "roundNumber": self.round_number,
+            "targetScore": self.target_score,
+            "showOdds": self.show_odds,
+            "hostName": host_p.name if host_p else "Unknown",
+            "hostAvatar": host_p.avatar if host_p else "👑",
+            "humanCount": len(humans),
+            "connectedHumanCount": len(connected_humans),
+            "botCount": len(bots),
+            "totalPlayers": len(self.players),
+            "maxPlayers": 12,
+            "hasOfflineSeat": len(connected_humans) < len(humans),
+            "createdAt": self.created_at
+        }
 
     def log(self, message: str):
         self.game_log.append(message)
@@ -754,7 +832,7 @@ class Room:
             self.timeout_task.cancel()
         self.turn_deadline = None
 
-        if self.state != "playing":
+        if self.is_destroyed or self.state != "playing" or not self.has_connected_humans():
             return
             
         # Check if pending target requires bot / auto-play action
@@ -922,6 +1000,17 @@ def generate_room_code() -> str:
         if code not in ROOMS:
             return code
 
+def get_rooms_summary_list() -> List[Dict[str, Any]]:
+    # Prune destroyed or completely human-less rooms first
+    to_remove = [code for code, r in list(ROOMS.items()) if r.is_destroyed or not r.has_any_humans()]
+    for code in to_remove:
+        r = ROOMS.pop(code, None)
+        if r and not r.is_destroyed:
+            r.destroy()
+    rooms_list = [r.to_summary_dict() for r in ROOMS.values() if not r.is_destroyed]
+    rooms_list.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
+    return rooms_list
+
 
 # ============================================================================
 # Client Connection & Protocol Handling
@@ -935,6 +1024,15 @@ class WebSocketClient:
         self.player_id: Optional[str] = None
         self.room_code: Optional[str] = None
         self.is_closed = False
+        self.last_msg_times: Dict[str, float] = {}
+
+    def is_rate_limited(self, mtype: str, cooldown: float = 0.5) -> bool:
+        now = time.time()
+        last = self.last_msg_times.get(mtype, 0.0)
+        if now - last < cooldown:
+            return True
+        self.last_msg_times[mtype] = now
+        return False
 
     def send_text(self, text: str):
         if self.is_closed:
@@ -974,8 +1072,51 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
         await client.drain()
         return
 
+    # 0b. LIST_ROOMS (Return active rooms and their states)
+    if mtype == "LIST_ROOMS":
+        client.send_text(json.dumps({
+            "type": "ROOM_LIST",
+            "data": {"rooms": get_rooms_summary_list()}
+        }))
+        await client.drain()
+        return
+
+    # Anti-rapid-click rate limit per message type on the same connection
+    cooldown_map = {
+        "CREATE_ROOM": 1.2,
+        "JOIN_ROOM": 0.8,
+        "START_GAME": 1.0,
+        "NEXT_ROUND": 1.0,
+        "RESTART_GAME": 1.0,
+        "HIT": 0.35,
+        "STAY": 0.35,
+        "SELECT_TARGET": 0.35,
+        "ADD_BOT": 0.25,
+    }
+    if mtype in cooldown_map and client.is_rate_limited(mtype, cooldown_map[mtype]):
+        return
+
     # 1. CREATE_ROOM
     if mtype == "CREATE_ROOM":
+        # Idempotency: if this client already created and is inside a lobby room very recently, return it
+        if client.room_code and client.player_id:
+            existing_room = ROOMS.get(client.room_code)
+            if existing_room and not existing_room.is_destroyed and existing_room.host_id == client.player_id and existing_room.state == "lobby" and (time.time() - existing_room.created_at < 5.0):
+                p = existing_room.get_player(client.player_id)
+                if p:
+                    client.send_text(json.dumps({
+                        "type": "ROOM_CREATED",
+                        "data": {
+                            "roomCode": existing_room.code,
+                            "playerId": p.id,
+                            "playerName": p.name,
+                            "playerAvatar": p.avatar,
+                            "state": existing_room.to_dict(for_player_id=p.id)
+                        }
+                    }))
+                    await client.drain()
+                    return
+
         rand_name, rand_avatar = generate_random_profile()
         raw_name = data.get("name", "").strip()
         player_name = raw_name if (raw_name and raw_name not in ["Player", "Host"]) else rand_name
@@ -1016,7 +1157,7 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
         existing_player_id = data.get("playerId")
         
         room = ROOMS.get(room_code)
-        if not room:
+        if not room or room.is_destroyed:
             client.send_text(json.dumps({
                 "type": "ERROR",
                 "data": {
@@ -1027,7 +1168,7 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
             await client.drain()
             return
             
-        # Check if reconnecting by playerId OR by disconnected player with matching name
+        # Check if reconnecting by playerId, OR same WebSocket client already in this room, OR disconnected player with matching name
         player = None
         is_reconnected = False
         if existing_player_id:
@@ -1035,15 +1176,29 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
             if player:
                 is_reconnected = not player.is_connected
                 player.is_connected = True
-                
+
+        # Anti-duplicate join on same WebSocket connection
+        if not player and client.room_code == room_code and client.player_id:
+            player = room.get_player(client.player_id)
+            if player:
+                player.is_connected = True
+
         if not player and raw_name:
-            # Fallback: if a human player with this exact name is currently disconnected, reclaim seat!
+            # 1) If a human player with this exact name is currently disconnected, reclaim seat!
             for p in room.players:
                 if not p.is_bot and not p.is_connected and p.name == raw_name:
                     player = p
                     is_reconnected = True
                     player.is_connected = True
                     break
+            # 2) Anti-rapid-click across duplicate sockets/requests: if in lobby a human player with this exact name joined within the last 3 seconds, reuse that player instead of creating a duplicate!
+            if not player and room.state == "lobby":
+                now = time.time()
+                for p in room.players:
+                    if not p.is_bot and p.name == raw_name and (now - getattr(p, "joined_at", 0) < 3.0):
+                        player = p
+                        player.is_connected = True
+                        break
 
         if not player:
             if room.state != "lobby":
@@ -1096,6 +1251,11 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
         room.clients[player.id] = client
         client.player_id = player.id
         client.room_code = room_code
+
+        # Cancel any pending empty-room destruction timer since a human is now connected
+        room.check_empty_and_cleanup(immediate_if_no_connected=False)
+        if is_reconnected and room.state == "playing":
+            room.schedule_bot_if_needed()
         
         client.send_text(json.dumps({
             "type": "ROOM_JOINED",
@@ -1128,13 +1288,15 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
                         humans = [pl for pl in room.players if not pl.is_bot]
                         if humans:
                             room.host_id = humans[0].id
-                        else:
-                            ROOMS.pop(room.code, None)
-                            return
                 else:
                     p.is_connected = False
                     p.is_auto_play = True
                     room.log(f"🚪 {p.name} 离开了房间，已交由 AI 托管。")
+
+                # Immediately destroy room if no connected human players remain!
+                if room.check_empty_and_cleanup(immediate_if_no_connected=True):
+                    return
+                if room.state == "playing":
                     room.schedule_bot_if_needed()
                 room.broadcast_state()
         
@@ -1170,7 +1332,13 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
         p = room.get_player(target_id)
         if p and p.id != room.host_id:
             room.players = [pl for pl in room.players if pl.id != target_id]
+            old_c = room.clients.pop(target_id, None)
+            if old_c:
+                old_c.room_code = None
+                old_c.player_id = None
             room.log(f"❌ {p.name} was removed from the table.")
+            if room.check_empty_and_cleanup(immediate_if_no_connected=True):
+                return
             room.broadcast_state()
 
     # 5. UPDATE_SETTINGS
@@ -1315,6 +1483,27 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
 
 async def handle_http_request(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, method: str, path: str, headers: Dict[str, str]):
     clean_path = urllib.parse.unquote(path.split("?")[0])
+    if clean_path == "/api/rooms":
+        body = json.dumps({"rooms": get_rooms_summary_list()}).encode("utf-8")
+        header_lines = [
+            "HTTP/1.1 200 OK",
+            "Content-Type: application/json; charset=utf-8",
+            f"Content-Length: {len(body)}",
+            "Cache-Control: no-cache, no-store, must-revalidate",
+            "Access-Control-Allow-Origin: *",
+            "Connection: close",
+            "\r\n"
+        ]
+        try:
+            writer.write("\r\n".join(header_lines).encode("utf-8"))
+            writer.write(body)
+            await writer.drain()
+        except Exception:
+            pass
+        finally:
+            writer.close()
+        return
+
     if clean_path in ["", "/"]:
         clean_path = "/index.html"
         
@@ -1441,12 +1630,13 @@ async def client_handler(reader: asyncio.StreamReader, writer: asyncio.StreamWri
             ws_client.close()
             if ws_client.room_code and ws_client.player_id:
                 room = ROOMS.get(ws_client.room_code)
-                if room and room.clients.get(ws_client.player_id) is ws_client:
+                if room and not room.is_destroyed and room.clients.get(ws_client.player_id) is ws_client:
                     p = room.get_player(ws_client.player_id)
                     if p:
                         p.is_connected = False
                         room.log(f"🔌 {p.name} 断开连接，等待重连...")
-                        room.broadcast_state()
+                        if not room.check_empty_and_cleanup(immediate_if_no_connected=False):
+                            room.broadcast_state()
     else:
         # Standard HTTP file request
         await handle_http_request(reader, writer, method, path, headers)

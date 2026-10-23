@@ -390,6 +390,13 @@
     btnLangToggle: document.getElementById('btn-lang-toggle'),
     btnSoundToggle: document.getElementById('btn-sound-toggle'),
     btnRules: document.getElementById('btn-rules'),
+    btnRoomListHeader: document.getElementById('btn-room-list-header'),
+    btnRoomList: document.getElementById('btn-room-list'),
+    modalRoomList: document.getElementById('modal-room-list'),
+    roomListCountBadge: document.getElementById('room-list-count-badge'),
+    btnRefreshRooms: document.getElementById('btn-refresh-rooms'),
+    btnCloseRooms: document.getElementById('btn-close-rooms'),
+    roomListContainer: document.getElementById('room-list-container'),
     reconnectBanner: document.getElementById('reconnect-banner'),
     reconnectText: document.getElementById('reconnect-text'),
     btnReconnectNow: document.getElementById('btn-reconnect-now'),
@@ -606,6 +613,34 @@
     }
   }
 
+  // Anti-rapid-click helper
+  function withButtonLock(btn, cooldownMs, fn) {
+    if (!btn) return fn();
+    if (btn._isLocked || btn.disabled) return;
+    btn._isLocked = true;
+    btn.classList.add('btn-busy');
+    btn.disabled = true;
+    clearTimeout(btn._unlockTimer);
+    btn._unlockTimer = setTimeout(() => {
+      btn._isLocked = false;
+      btn.classList.remove('btn-busy');
+      btn.disabled = false;
+    }, cooldownMs);
+    fn();
+  }
+
+  function unlockRoomButtons() {
+    state.roomActionPending = false;
+    [el.btnCreateRoom, el.btnJoinRoom].forEach(btn => {
+      if (btn) {
+        clearTimeout(btn._unlockTimer);
+        btn._isLocked = false;
+        btn.classList.remove('btn-busy');
+        btn.disabled = false;
+      }
+    });
+  }
+
   function handleServerMessage(msg) {
     const { type, data } = msg;
 
@@ -613,7 +648,14 @@
       return;
     }
 
+    if (type === 'ROOM_LIST') {
+      renderRoomList((data && data.rooms) || []);
+      return;
+    }
+
     if (type === 'ROOM_CREATED' || type === 'ROOM_JOINED') {
+      unlockRoomButtons();
+      closeRoomListModal();
       state.isLocalMode = false;
       state.roomCode = data.roomCode;
       state.playerId = data.playerId;
@@ -639,6 +681,7 @@
     } else if (type === 'CHAT_MESSAGE') {
       renderChatMessage(data);
     } else if (type === 'ERROR') {
+      unlockRoomButtons();
       if (data && data.code === 'ROOM_NOT_FOUND') {
         clearRoomSession(state.roomCode);
         state.roomCode = null;
@@ -649,6 +692,152 @@
       }
       alert(data.message || 'An error occurred.');
     }
+  }
+
+  // ============================================================================
+  // Active Room List Modal
+  // ============================================================================
+
+  function openRoomListModal() {
+    if (!el.modalRoomList) return;
+    el.modalRoomList.classList.remove('hidden');
+    fetchRoomList();
+    clearInterval(state.roomListPollTimer);
+    state.roomListPollTimer = setInterval(() => {
+      if (el.modalRoomList && !el.modalRoomList.classList.contains('hidden')) {
+        fetchRoomList();
+      } else {
+        clearInterval(state.roomListPollTimer);
+      }
+    }, 3500);
+  }
+
+  function closeRoomListModal() {
+    if (!el.modalRoomList) return;
+    el.modalRoomList.classList.add('hidden');
+    clearInterval(state.roomListPollTimer);
+  }
+
+  async function fetchRoomList() {
+    try {
+      const res = await fetch('/api/rooms', { cache: 'no-store' });
+      if (res.ok) {
+        const json = await res.json();
+        renderRoomList(json.rooms || []);
+        return;
+      }
+    } catch (e) {
+      // Fallback to WebSocket if fetch fails
+    }
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      state.ws.send(JSON.stringify({ type: 'LIST_ROOMS', data: {} }));
+    }
+  }
+
+  function joinRoomByCode(code) {
+    if (!code || state.roomActionPending) return;
+    const cleanCode = code.trim().toUpperCase();
+    state.roomActionPending = true;
+    setTimeout(() => { state.roomActionPending = false; }, 1800);
+    state.isLocalMode = false;
+    if (el.roomCodeInput) el.roomCodeInput.value = cleanCode;
+    const savedSess = loadRoomSession(cleanCode);
+    connectWebSocket(() => {
+      sendWS('JOIN_ROOM', {
+        roomCode: cleanCode,
+        playerId: savedSess ? savedSess.playerId : state.playerId,
+        name: state.playerName,
+        avatar: state.playerAvatar
+      });
+    });
+  }
+
+  function renderRoomList(rooms) {
+    if (!el.roomListContainer) return;
+    if (el.roomListCountBadge) {
+      el.roomListCountBadge.textContent = rooms.length;
+    }
+
+    if (!rooms || rooms.length === 0) {
+      el.roomListContainer.innerHTML = `
+        <div class="room-list-empty">
+          <div class="empty-icon">🃏</div>
+          <p>${window.t('noActiveRooms')}</p>
+        </div>
+      `;
+      return;
+    }
+
+    const isZh = (window.getCurrentLanguage() === 'zh');
+    el.roomListContainer.innerHTML = rooms.map(r => {
+      let stateLabel = window.t('roomStateLobby');
+      let stateClass = 'room-badge-lobby';
+      if (r.state === 'playing') {
+        stateLabel = `${window.t('roomStatePlaying')} (${isZh ? `第 ${r.roundNumber} 轮` : `R${r.roundNumber}`})`;
+        stateClass = 'room-badge-playing';
+      } else if (r.state === 'round_recap') {
+        stateLabel = `${window.t('roomStateRecap')} (${isZh ? `第 ${r.roundNumber} 轮` : `R${r.roundNumber}`})`;
+        stateClass = 'room-badge-recap';
+      } else if (r.state === 'gameover') {
+        stateLabel = window.t('roomStateGameover');
+        stateClass = 'room-badge-gameover';
+      }
+
+      const savedSess = loadRoomSession(r.roomCode);
+      const hasDisconnectedSeat = (r.players || []).some(p => !p.isBot && p.isConnected === false);
+      const canReconnect = !!(savedSess || hasDisconnectedSeat || r.roomCode === state.roomCode);
+      const canJoin = (r.state === 'lobby' && r.playerCount < (r.maxPlayers || 12)) || canReconnect;
+
+      let actionBtnHTML = '';
+      if (r.state === 'lobby') {
+        actionBtnHTML = `<button type="button" class="btn btn-sm btn-primary btn-join-room-item" data-room-code="${escapeHTML(r.roomCode)}">${window.t('joinThisRoomBtn')}</button>`;
+      } else if (canReconnect) {
+        actionBtnHTML = `<button type="button" class="btn btn-sm btn-secondary btn-join-room-item" data-room-code="${escapeHTML(r.roomCode)}">${window.t('reconnectThisRoomBtn')}</button>`;
+      } else {
+        actionBtnHTML = `<button type="button" class="btn btn-sm btn-outline" disabled>${window.t('inProgressLockedBtn')}</button>`;
+      }
+
+      const playerChips = (r.players || []).map(p => `
+        <span class="room-player-chip ${p.isBot ? 'is-bot' : ''} ${p.isConnected === false ? 'is-offline' : ''}">
+          ${p.avatar} ${escapeHTML(p.name)}
+          ${p.isAutoPlay ? '🤖' : ''}
+          ${p.isConnected === false ? '🔌' : ''}
+        </span>
+      `).join('');
+
+      return `
+        <div class="room-list-card ${r.roomCode === state.roomCode ? 'is-current-room' : ''}">
+          <div class="room-card-top">
+            <div class="room-code-wrap">
+              <span class="room-code-pill">${escapeHTML(r.roomCode)}</span>
+              <span class="room-state-badge ${stateClass}">${stateLabel}</span>
+            </div>
+            <div class="room-card-action">
+              ${actionBtnHTML}
+            </div>
+          </div>
+          <div class="room-card-meta">
+            <span>👑 ${window.t('roomHostLabel')} <strong>${r.hostAvatar || '🦊'} ${escapeHTML(r.hostName)}</strong></span>
+            <span>👥 ${window.t('roomHumansLabel')} <strong>${r.connectedHumanCount}/${r.humanCount}</strong></span>
+            <span>🤖 ${window.t('roomBotsLabel')} <strong>${r.botCount}</strong></span>
+            <span>🎯 ${window.t('goalLabel')} <strong>${r.targetScore} pts</strong></span>
+          </div>
+          <div class="room-card-players">
+            ${playerChips}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    el.roomListContainer.querySelectorAll('.btn-join-room-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const code = btn.getAttribute('data-room-code');
+        sfx.playClick();
+        withButtonLock(btn, 1500, () => {
+          joinRoomByCode(code);
+        });
+      });
+    });
   }
 
   // ============================================================================
@@ -2522,39 +2711,71 @@
     });
   }
 
-  // Create Online Room
+  // Room List Modal Buttons
+  if (el.btnRoomList) {
+    el.btnRoomList.addEventListener('click', () => {
+      sfx.playClick();
+      openRoomListModal();
+    });
+  }
+  if (el.btnRoomListHeader) {
+    el.btnRoomListHeader.addEventListener('click', () => {
+      sfx.playClick();
+      openRoomListModal();
+    });
+  }
+  if (el.btnRefreshRooms) {
+    el.btnRefreshRooms.addEventListener('click', () => {
+      sfx.playClick();
+      withButtonLock(el.btnRefreshRooms, 500, () => {
+        fetchRoomList();
+      });
+    });
+  }
+  if (el.btnCloseRooms) {
+    el.btnCloseRooms.addEventListener('click', () => {
+      sfx.playClick();
+      closeRoomListModal();
+    });
+  }
+  if (el.modalRoomList) {
+    el.modalRoomList.addEventListener('click', (e) => {
+      if (e.target === el.modalRoomList) closeRoomListModal();
+    });
+  }
+
+  // Create Online Room (with anti-rapid-click lock)
   el.btnCreateRoom.addEventListener('click', () => {
-    sfx.playClick();
-    state.isLocalMode = false;
-    const targetScore = parseInt(el.createTargetScore.value, 10) || 200;
-    const showOdds = el.createShowOdds ? (el.createShowOdds.value === 'true') : true;
-    connectWebSocket(() => {
-      sendWS('CREATE_ROOM', {
-        name: state.playerName,
-        avatar: state.playerAvatar,
-        targetScore: targetScore,
-        showOdds: showOdds
+    if (state.roomActionPending) return;
+    withButtonLock(el.btnCreateRoom, 1800, () => {
+      state.roomActionPending = true;
+      setTimeout(() => { state.roomActionPending = false; }, 1800);
+      sfx.playClick();
+      state.isLocalMode = false;
+      const targetScore = parseInt(el.createTargetScore.value, 10) || 200;
+      const showOdds = el.createShowOdds ? (el.createShowOdds.value === 'true') : true;
+      connectWebSocket(() => {
+        sendWS('CREATE_ROOM', {
+          name: state.playerName,
+          avatar: state.playerAvatar,
+          targetScore: targetScore,
+          showOdds: showOdds
+        });
       });
     });
   });
 
-  // Join Online Room
+  // Join Online Room (with anti-rapid-click lock)
   el.btnJoinRoom.addEventListener('click', () => {
-    sfx.playClick();
-    state.isLocalMode = false;
+    if (state.roomActionPending) return;
     const code = el.roomCodeInput.value.trim().toUpperCase();
     if (!code) {
       alert(window.getCurrentLanguage() === 'zh' ? '请输入4位房间代码。' : 'Please enter a 4-letter room code.');
       return;
     }
-    const savedSess = loadRoomSession(code);
-    connectWebSocket(() => {
-      sendWS('JOIN_ROOM', {
-        roomCode: code,
-        playerId: savedSess ? savedSess.playerId : state.playerId,
-        name: state.playerName,
-        avatar: state.playerAvatar
-      });
+    withButtonLock(el.btnJoinRoom, 1800, () => {
+      sfx.playClick();
+      joinRoomByCode(code);
     });
   });
 
@@ -2644,13 +2865,17 @@
 
   // Lobby Host Actions
   el.btnAddBot.addEventListener('click', () => {
-    sfx.playClick();
-    sendWS('ADD_BOT');
+    withButtonLock(el.btnAddBot, 320, () => {
+      sfx.playClick();
+      sendWS('ADD_BOT');
+    });
   });
 
   el.btnStartGame.addEventListener('click', () => {
-    sfx.playClick();
-    sendWS('START_GAME');
+    withButtonLock(el.btnStartGame, 1200, () => {
+      sfx.playClick();
+      sendWS('START_GAME');
+    });
   });
 
   el.btnLeaveRoom.addEventListener('click', () => {
@@ -2668,25 +2893,33 @@
     showScreen(el.screenHome);
   });
 
-  // Play Actions
+  // Play Actions (with anti-rapid-click lock)
   el.btnHit.addEventListener('click', () => {
-    sfx.playClick();
-    sendWS('HIT');
+    withButtonLock(el.btnHit, 450, () => {
+      sfx.playClick();
+      sendWS('HIT');
+    });
   });
 
   el.btnStay.addEventListener('click', () => {
-    sfx.playClick();
-    sendWS('STAY');
+    withButtonLock(el.btnStay, 450, () => {
+      sfx.playClick();
+      sendWS('STAY');
+    });
   });
 
   el.btnNextRound.addEventListener('click', () => {
-    sfx.playClick();
-    sendWS('NEXT_ROUND');
+    withButtonLock(el.btnNextRound, 1200, () => {
+      sfx.playClick();
+      sendWS('NEXT_ROUND');
+    });
   });
 
   el.btnPlayAgain.addEventListener('click', () => {
-    sfx.playClick();
-    sendWS('RESTART_GAME');
+    withButtonLock(el.btnPlayAgain, 1200, () => {
+      sfx.playClick();
+      sendWS('RESTART_GAME');
+    });
   });
 
   el.btnReturnLobby.addEventListener('click', () => {

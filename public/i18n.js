@@ -9,8 +9,26 @@ const I18N = {
     langBtn: "🌐 中文",
     soundTitle: "Toggle Sound",
     rulesBtn: "📖 Rules",
+    roomListBtn: "🏛️ Rooms",
     themeBtn: "🎨 Themes",
     tagline: "The Ultimate Push-Your-Luck Card Game",
+
+    // Room List Modal
+    browseRoomsBtn: "🏛️ View All Rooms & Status",
+    roomListModalTitle: "🏛️ Active Online Rooms",
+    roomListModalDesc: "View live status of all active rooms. Click to join a waiting lobby or reconnect to an ongoing match:",
+    refreshRoomsBtn: "🔄 Refresh",
+    noActiveRooms: "No active rooms right now. Create a new room to start playing!",
+    roomStateLobby: "🟢 Waiting in Lobby",
+    roomStatePlaying: "🔥 Playing",
+    roomStateRecap: "📊 Round Recap",
+    roomStateGameover: "🏆 Game Over",
+    joinThisRoomBtn: "➡️ Join Room",
+    reconnectThisRoomBtn: "🔌 Reconnect",
+    inProgressLockedBtn: "🔒 In Progress",
+    roomHostLabel: "Host:",
+    roomHumansLabel: "Players:",
+    roomBotsLabel: "Bots:",
 
     // Theme Picker
     themeModalTitle: "Choose Table Theme",
@@ -191,8 +209,26 @@ const I18N = {
     langBtn: "🌐 English",
     soundTitle: "声音开关",
     rulesBtn: "📖 规则",
+    roomListBtn: "🏛️ 房间列表",
     themeBtn: "🎨 主题风格",
     tagline: "风靡全球的极限运气博弈卡牌游戏",
+
+    // Room List Modal
+    browseRoomsBtn: "🏛️ 查看所有房间与状态",
+    roomListModalTitle: "🏛️ 在线房间大厅",
+    roomListModalDesc: "实时查看所有正在等待或对局中的房间状态，点击即可一键加入或断线重连：",
+    refreshRoomsBtn: "🔄 刷新",
+    noActiveRooms: "当前暂无活跃房间，快点击「创建房间」开启牌局吧！",
+    roomStateLobby: "🟢 等待开局中",
+    roomStatePlaying: "🔥 对局进行中",
+    roomStateRecap: "📊 本轮结算中",
+    roomStateGameover: "🏆 比赛已结束",
+    joinThisRoomBtn: "➡️ 加入房间",
+    reconnectThisRoomBtn: "🔌 断线重连",
+    inProgressLockedBtn: "🔒 对局进行中",
+    roomHostLabel: "房主:",
+    roomHumansLabel: "真人:",
+    roomBotsLabel: "AI:",
 
     // Theme Picker
     themeModalTitle: "选择牌桌主题风格",
