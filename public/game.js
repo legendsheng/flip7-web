@@ -485,6 +485,7 @@
     tabBtnChat: document.getElementById('tab-btn-chat'),
     reactionsBar: document.getElementById('reactions-bar'),
     logStream: document.getElementById('log-stream'),
+    btnScrollBottom: document.getElementById('btn-scroll-bottom'),
     scoreboardList: document.getElementById('scoreboard-list'),
     chatMessages: document.getElementById('chat-messages'),
     chatForm: document.getElementById('chat-form'),
@@ -905,7 +906,7 @@
       if (this.fullMatchLog.length > 600) this.fullMatchLog.shift();
 
       this.gameLog.push(msg);
-      if (this.gameLog.length > 25) this.gameLog.shift();
+      if (this.gameLog.length > 300) this.gameLog.shift();
     }
 
     buildDeck() {
@@ -1448,7 +1449,7 @@
         lastDrawResult: this.lastDrawResult,
         pendingTarget: this.pendingTarget,
         deckStats: this.getStats(cur),
-        gameLog: this.gameLog.slice(-20),
+        gameLog: this.gameLog,
         winner: this.winner
       };
     }
@@ -2471,13 +2472,33 @@
     return '';
   }
 
+  let lastRenderedLogCount = -1;
+  let lastRenderedLastMsg = '';
+
   function renderSidebar(room) {
     if (room.gameLog) {
-      const recentLogs = room.gameLog.slice(-20);
-      el.logStream.innerHTML = recentLogs.map(logMsg => `
-        <div class="log-item">${escapeHTML(logMsg)}</div>
-      `).join('');
-      el.logStream.scrollTop = el.logStream.scrollHeight;
+      const logs = room.gameLog;
+      const currentScrollTop = el.logStream.scrollTop;
+      const scrollHeight = el.logStream.scrollHeight;
+      const clientHeight = el.logStream.clientHeight;
+      // User is considered at the bottom if within 60px of bottom, or on first render
+      const isAtBottom = (scrollHeight - currentScrollTop - clientHeight) <= 60;
+
+      const latestMsg = logs.length ? logs[logs.length - 1] : '';
+      if (logs.length !== lastRenderedLogCount || latestMsg !== lastRenderedLastMsg) {
+        lastRenderedLogCount = logs.length;
+        lastRenderedLastMsg = latestMsg;
+
+        el.logStream.innerHTML = logs.map(logMsg => `
+          <div class="log-item">${escapeHTML(logMsg)}</div>
+        `).join('');
+
+        // If user was viewing latest logs or on initial load, auto-scroll to bottom.
+        // If user deliberately scrolled up to inspect previous turns, preserve their scroll position!
+        if (isAtBottom || currentScrollTop === 0) {
+          el.logStream.scrollTop = el.logStream.scrollHeight;
+        }
+      }
     }
 
     const sorted = [...room.players].sort((a, b) => b.totalScore - a.totalScore);
@@ -3256,6 +3277,26 @@
     const btn = document.getElementById(id);
     if (btn) btn.addEventListener('click', exportMatchLog);
   });
+
+  if (el.logStream) {
+    el.logStream.addEventListener('scroll', () => {
+      const isNearBottom = (el.logStream.scrollHeight - el.logStream.scrollTop - el.logStream.clientHeight) < 60;
+      if (el.btnScrollBottom) {
+        if (!isNearBottom && el.logStream.scrollHeight > el.logStream.clientHeight + 80) {
+          el.btnScrollBottom.classList.remove('hidden');
+        } else {
+          el.btnScrollBottom.classList.add('hidden');
+        }
+      }
+    });
+  }
+
+  if (el.btnScrollBottom) {
+    el.btnScrollBottom.addEventListener('click', () => {
+      el.logStream.scrollTo({ top: el.logStream.scrollHeight, behavior: 'smooth' });
+      el.btnScrollBottom.classList.add('hidden');
+    });
+  }
 
   // ============================================================================
   // Initialization
