@@ -396,7 +396,7 @@ class Room:
             self.full_match_log.pop(0)
 
         self.game_log.append(message)
-        if len(self.game_log) > 300:
+        if len(self.game_log) > 600:
             self.game_log.pop(0)
 
     def get_player(self, player_id: str) -> Optional[Player]:

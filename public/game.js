@@ -906,7 +906,7 @@
       if (this.fullMatchLog.length > 600) this.fullMatchLog.shift();
 
       this.gameLog.push(msg);
-      if (this.gameLog.length > 300) this.gameLog.shift();
+      if (this.gameLog.length > 600) this.gameLog.shift();
     }
 
     buildDeck() {
@@ -2212,6 +2212,9 @@
         cardsMiniHTML += `<div class="mini-card ${isX2 ? 'mini-x2' : 'mini-mod'}">${m.name}</div>`;
       });
 
+      const totalMiniCount = (seatHeart ? 1 : 0) + seatNums.length + (isBusted && p.bustedCard ? 1 : 0) + seatMods.length;
+      const crowdedClass = totalMiniCount >= 7 ? 'is-crowded' : '';
+
       const statusKey = `status${p.roundStatus.charAt(0).toUpperCase() + p.roundStatus.slice(1)}`;
 
       return `
@@ -2229,7 +2232,7 @@
             <span class="seat-score">${p.roundScore} <small style="color:#94a3b8">/ ${p.totalScore}</small></span>
           </div>
           <span class="seat-status-tag tag-${p.roundStatus}">${window.t(statusKey)}</span>
-          <div class="seat-cards-mini">
+          <div class="seat-cards-mini ${crowdedClass}">
             ${cardsMiniHTML || `<span style="font-size:0.7rem;color:rgba(255,255,255,0.3)">${window.t('none')}</span>`}
           </div>
         </div>
@@ -2431,7 +2434,7 @@
     return '';
   }
 
-  let renderedLogCount = 0;
+  let renderedLogs = [];
 
   function renderSidebar(room) {
     if (!room) return;
@@ -2444,28 +2447,75 @@
       // If user is within 60px of bottom, consider them at bottom
       const isAtBottom = (scrollHeight - currentScrollTop - clientHeight) <= 60;
 
-      // Handle room reset, clear, or DOM desync
-      if (el.logStream.children.length === 0 || logs.length < renderedLogCount) {
+      // 1. Initial render or DOM desync
+      if (el.logStream.children.length === 0 || renderedLogs.length === 0) {
         el.logStream.innerHTML = '';
-        renderedLogCount = 0;
-      }
-
-      if (logs.length > renderedLogCount) {
-        const wasEmpty = (renderedLogCount === 0);
         const fragment = document.createDocumentFragment();
-        for (let i = renderedLogCount; i < logs.length; i++) {
+        for (let i = 0; i < logs.length; i++) {
           const item = document.createElement('div');
           item.className = 'log-item';
           item.textContent = logs[i];
           fragment.appendChild(item);
         }
         el.logStream.appendChild(fragment);
-        renderedLogCount = logs.length;
+        renderedLogs = [...logs];
+        el.logStream.scrollTop = el.logStream.scrollHeight;
+      } else if (logs.length > renderedLogs.length) {
+        // 2. Normal growth when buffer not full
+        const newItems = logs.slice(renderedLogs.length);
+        const fragment = document.createDocumentFragment();
+        for (let i = 0; i < newItems.length; i++) {
+          const item = document.createElement('div');
+          item.className = 'log-item';
+          item.textContent = newItems[i];
+          fragment.appendChild(item);
+        }
+        el.logStream.appendChild(fragment);
+        renderedLogs = [...logs];
 
-        // Auto-scroll to bottom ONLY if user was already at the bottom or on initial load
-        if (isAtBottom || wasEmpty) {
+        if (isAtBottom) {
           el.logStream.scrollTop = el.logStream.scrollHeight;
         }
+      } else {
+        // 3. Buffer full (server popped from front) or room reset
+        const lastRendered = renderedLogs[renderedLogs.length - 1];
+        const matchIdx = logs.lastIndexOf(lastRendered);
+
+        if (matchIdx !== -1 && matchIdx < logs.length - 1) {
+          // New logs arrived after the last known message!
+          const newItems = logs.slice(matchIdx + 1);
+          const fragment = document.createDocumentFragment();
+          for (let i = 0; i < newItems.length; i++) {
+            const item = document.createElement('div');
+            item.className = 'log-item';
+            item.textContent = newItems[i];
+            fragment.appendChild(item);
+          }
+          el.logStream.appendChild(fragment);
+          renderedLogs = [...logs];
+
+          if (isAtBottom) {
+            el.logStream.scrollTop = el.logStream.scrollHeight;
+          }
+        } else if (matchIdx === -1 && (logs.length < 10 || logs[logs.length - 1] !== lastRendered)) {
+          // Room reset or new match
+          el.logStream.innerHTML = '';
+          const fragment = document.createDocumentFragment();
+          for (let i = 0; i < logs.length; i++) {
+            const item = document.createElement('div');
+            item.className = 'log-item';
+            item.textContent = logs[i];
+            fragment.appendChild(item);
+          }
+          el.logStream.appendChild(fragment);
+          renderedLogs = [...logs];
+          el.logStream.scrollTop = el.logStream.scrollHeight;
+        }
+      }
+
+      // Memory safeguard: keep DOM elements to max 500 items
+      while (el.logStream.children.length > 500) {
+        el.logStream.removeChild(el.logStream.firstElementChild);
       }
     }
 
