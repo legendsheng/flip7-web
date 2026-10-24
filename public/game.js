@@ -2437,6 +2437,18 @@
   let renderedLogs = [];
   let userScrolledUpLog = false;
   let userScrolledUpChat = false;
+  let userInteractedLog = false;
+  let userInteractedChat = false;
+
+  function scrollLogToBottom() {
+    if (!el.logStream) return;
+    el.logStream.scrollTop = el.logStream.scrollHeight;
+  }
+
+  function scrollChatToBottom() {
+    if (!el.chatMessages) return;
+    el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+  }
 
   function findNewLogs(oldLogs, newLogs) {
     if (!oldLogs || oldLogs.length === 0) return newLogs;
@@ -2497,7 +2509,8 @@
 
         if (!userScrolledUpLog) {
           requestAnimationFrame(() => {
-            if (el.logStream) el.logStream.scrollTop = el.logStream.scrollHeight;
+            scrollLogToBottom();
+            setTimeout(scrollLogToBottom, 30);
           });
         }
       } else {
@@ -2517,7 +2530,8 @@
 
           if (!userScrolledUpLog) {
             requestAnimationFrame(() => {
-              if (el.logStream) el.logStream.scrollTop = el.logStream.scrollHeight;
+              scrollLogToBottom();
+              setTimeout(scrollLogToBottom, 30);
             });
           }
         } else if (newItems.length > 0) {
@@ -2533,7 +2547,8 @@
 
           if (!userScrolledUpLog) {
             requestAnimationFrame(() => {
-              if (el.logStream) el.logStream.scrollTop = el.logStream.scrollHeight;
+              scrollLogToBottom();
+              setTimeout(scrollLogToBottom, 30);
             });
           }
         }
@@ -2575,9 +2590,8 @@
 
     if (!userScrolledUpChat) {
       requestAnimationFrame(() => {
-        if (el.chatMessages) {
-          el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
-        }
+        scrollChatToBottom();
+        setTimeout(scrollChatToBottom, 30);
       });
     }
 
@@ -3217,8 +3231,10 @@
     }
     el.chatInput.value = '';
     userScrolledUpChat = false;
+    userInteractedChat = false;
     requestAnimationFrame(() => {
-      if (el.chatMessages) el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+      scrollChatToBottom();
+      setTimeout(scrollChatToBottom, 30);
     });
   });
 
@@ -3233,14 +3249,18 @@
 
       if (paneId === 'tab-log') {
         userScrolledUpLog = false;
+        userInteractedLog = false;
         if (el.btnScrollBottom) el.btnScrollBottom.classList.add('hidden');
         requestAnimationFrame(() => {
-          if (el.logStream) el.logStream.scrollTop = el.logStream.scrollHeight;
+          scrollLogToBottom();
+          setTimeout(scrollLogToBottom, 30);
         });
       } else if (paneId === 'tab-chat') {
         userScrolledUpChat = false;
+        userInteractedChat = false;
         requestAnimationFrame(() => {
-          if (el.chatMessages) el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+          scrollChatToBottom();
+          setTimeout(scrollChatToBottom, 30);
         });
       }
     });
@@ -3372,15 +3392,19 @@
   });
 
   if (el.logStream) {
+    el.logStream.addEventListener('wheel', () => { userInteractedLog = true; }, { passive: true });
+    el.logStream.addEventListener('touchmove', () => { userInteractedLog = true; }, { passive: true });
+    el.logStream.addEventListener('pointerdown', () => { userInteractedLog = true; }, { passive: true });
     el.logStream.addEventListener('scroll', () => {
       const distFromBottom = el.logStream.scrollHeight - el.logStream.scrollTop - el.logStream.clientHeight;
-      const isNearBottom = distFromBottom <= 80;
-      userScrolledUpLog = !isNearBottom;
-      if (el.btnScrollBottom) {
-        if (userScrolledUpLog && el.logStream.scrollHeight > el.logStream.clientHeight + 100) {
+      if (distFromBottom <= 60) {
+        userScrolledUpLog = false;
+        userInteractedLog = false;
+        if (el.btnScrollBottom) el.btnScrollBottom.classList.add('hidden');
+      } else if (userInteractedLog) {
+        userScrolledUpLog = true;
+        if (el.btnScrollBottom && el.logStream.scrollHeight > el.logStream.clientHeight + 60) {
           el.btnScrollBottom.classList.remove('hidden');
-        } else {
-          el.btnScrollBottom.classList.add('hidden');
         }
       }
     });
@@ -3389,17 +3413,24 @@
   if (el.btnScrollBottom) {
     el.btnScrollBottom.addEventListener('click', () => {
       userScrolledUpLog = false;
+      userInteractedLog = false;
       el.btnScrollBottom.classList.add('hidden');
-      if (el.logStream) {
-        el.logStream.scrollTop = el.logStream.scrollHeight;
-      }
+      scrollLogToBottom();
     });
   }
 
   if (el.chatMessages) {
+    el.chatMessages.addEventListener('wheel', () => { userInteractedChat = true; }, { passive: true });
+    el.chatMessages.addEventListener('touchmove', () => { userInteractedChat = true; }, { passive: true });
+    el.chatMessages.addEventListener('pointerdown', () => { userInteractedChat = true; }, { passive: true });
     el.chatMessages.addEventListener('scroll', () => {
       const distFromBottom = el.chatMessages.scrollHeight - el.chatMessages.scrollTop - el.chatMessages.clientHeight;
-      userScrolledUpChat = distFromBottom > 80;
+      if (distFromBottom <= 60) {
+        userScrolledUpChat = false;
+        userInteractedChat = false;
+      } else if (userInteractedChat) {
+        userScrolledUpChat = true;
+      }
     });
   }
 
