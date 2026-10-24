@@ -1855,6 +1855,47 @@ body {
   display: flex;
 }
 
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.85rem;
+  background: rgba(0, 0, 0, 0.28);
+  border-bottom: 1px solid var(--surface-border);
+  flex-shrink: 0;
+}
+
+.log-toolbar-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.btn-export-log {
+  background: rgba(245, 197, 24, 0.12);
+  border: 1px solid rgba(245, 197, 24, 0.35);
+  color: var(--gold);
+  border-radius: 6px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: all 0.2s ease;
+}
+
+.btn-export-log:hover {
+  background: rgba(245, 197, 24, 0.25);
+  border-color: var(--gold);
+}
+
+.btn-export-log:active {
+  transform: scale(0.95);
+}
+
 .log-stream, .chat-messages {
   flex: 1;
   height: 100%;
@@ -2836,6 +2877,31 @@ body[data-theme="celestial"] .game-card.card-num-7 {
   z-index: 9999;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   animation: toast-pop 0.25s ease-out;
+}
+
+.global-toast {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.65rem 1.35rem;
+  border-radius: 999px;
+  background: rgba(13, 22, 19, 0.96);
+  border: 1.5px solid var(--gold);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.88rem;
+  z-index: 9999;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6), 0 0 16px var(--gold-glow);
+  backdrop-filter: blur(12px);
+  animation: toast-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+@media (max-width: 600px) {
+  .hide-mobile {
+    display: none !important;
+  }
 }
 
 @keyframes toast-pop {

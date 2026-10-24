@@ -865,6 +865,8 @@
       this.state = 'playing';
       this.deck = this.buildDeck();
       this.discardPile = [];
+      this.isSequenceBusy = false;
+      this.fullMatchLog = [];
       this.gameLog = [];
       this.lastCardDrawn = null;
       this.lastDrawResult = null;
@@ -897,6 +899,11 @@
     }
 
     log(msg) {
+      const now = new Date();
+      const ts = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+      this.fullMatchLog.push(`[${ts}] ${msg}`);
+      if (this.fullMatchLog.length > 600) this.fullMatchLog.shift();
+
       this.gameLog.push(msg);
       if (this.gameLog.length > 25) this.gameLog.shift();
     }
@@ -1024,6 +1031,7 @@
     }
 
     hit(autoAdvance = true) {
+      if (this.isSequenceBusy) return;
       const p = this.currentPlayer();
       if (!p || p.roundStatus !== 'active' || this.state !== 'playing') return;
 
@@ -1143,6 +1151,7 @@
     }
 
     stay() {
+      if (this.isSequenceBusy) return;
       const p = this.currentPlayer();
       if (!p || p.roundStatus !== 'active' || this.state !== 'playing') return;
       p.roundStatus = 'stayed';
@@ -1183,83 +1192,89 @@
     }
 
     async runFlipThree(target) {
-      for (let step = 1; step <= 3; step++) {
-        if (this.state !== 'playing' || target.roundStatus !== 'active') break;
-        await new Promise(r => setTimeout(r, 1000));
+      this.isSequenceBusy = true;
+      try {
+        for (let step = 1; step <= 3; step++) {
+          if (this.state !== 'playing' || target.roundStatus !== 'active') break;
+          await new Promise(r => setTimeout(r, 1000));
 
-        const card = this.drawCard();
-        this.lastCardDrawn = card;
-        const result = { card, player: target.id, step };
+          const card = this.drawCard();
+          this.lastCardDrawn = card;
+          const result = { card, player: target.id, step };
 
-        if (card.type === 'number') {
-          const val = card.value;
-          if (target.numberCards.includes(val)) {
-            if (target.hasSecondChance) {
-              target.hasSecondChance = false;
-              this.discardPile.push(card);
-              if (target.secondChanceCard) {
-                this.discardPile.push(target.secondChanceCard);
-                target.secondChanceCard = null;
+          if (card.type === 'number') {
+            const val = card.value;
+            if (target.numberCards.includes(val)) {
+              if (target.hasSecondChance) {
+                target.hasSecondChance = false;
+                this.discardPile.push(card);
+                if (target.secondChanceCard) {
+                  this.discardPile.push(target.secondChanceCard);
+                  target.secondChanceCard = null;
+                }
+                result.outcome = 'shield_saved';
+                this.log(window.t('logShieldSaved', target.name, val));
+              } else {
+                target.roundStatus = 'busted';
+                target.bustedCard = card;
+                this.discardPile.push(card);
+                if (target.handCards && target.handCards.length > 0) {
+                  this.discardPile.push(...target.handCards);
+                  target.handCards = [];
+                }
+                if (target.secondChanceCard) {
+                  this.discardPile.push(target.secondChanceCard);
+                  target.secondChanceCard = null;
+                }
+                result.outcome = 'busted';
+                this.log(window.t('logBusted', target.name, val));
+                this.lastDrawResult = result;
+                renderLocalState();
+                break;
               }
-              result.outcome = 'shield_saved';
-              this.log(window.t('logShieldSaved', target.name, val));
             } else {
-              target.roundStatus = 'busted';
-              target.bustedCard = card;
-              this.discardPile.push(card);
-              if (target.handCards && target.handCards.length > 0) {
-                this.discardPile.push(...target.handCards);
-                target.handCards = [];
+              target.numberCards.push(val);
+              target.handCards.push(card);
+              result.outcome = 'safe_number';
+              this.log(window.t('logHitSafe', target.name, val, target.numberCards.length));
+              if (target.numberCards.length >= 7) {
+                target.flippedSeven = true;
+                result.outcome = 'flip_seven';
+                this.log(window.t('logFlip7', target.name));
+                this.lastDrawResult = result;
+                renderLocalState();
+                this.endRound(`${target.name} FLIP 7!`);
+                renderLocalState();
+                return;
               }
-              if (target.secondChanceCard) {
-                this.discardPile.push(target.secondChanceCard);
-                target.secondChanceCard = null;
-              }
-              result.outcome = 'busted';
-              this.log(window.t('logBusted', target.name, val));
-              this.lastDrawResult = result;
-              renderLocalState();
-              break;
             }
-          } else {
-            target.numberCards.push(val);
+          } else if (card.type === 'modifier') {
+            target.modifierCards.push(card);
             target.handCards.push(card);
-            result.outcome = 'safe_number';
-            this.log(window.t('logHitSafe', target.name, val, target.numberCards.length));
-            if (target.numberCards.length >= 7) {
-              target.flippedSeven = true;
-              result.outcome = 'flip_seven';
-              this.log(window.t('logFlip7', target.name));
-              this.lastDrawResult = result;
-              renderLocalState();
-              this.endRound(`${target.name} FLIP 7!`);
-              renderLocalState();
-              return;
+            result.outcome = 'modifier';
+            this.log(window.t('logModifier', target.name, card.name));
+          } else if (card.type === 'action') {
+            if (card.action === 'second_chance' && !target.hasSecondChance) {
+              target.hasSecondChance = true;
+              target.secondChanceCard = card;
+              result.outcome = 'second_chance_gained';
+              this.log(window.t('logShieldGained', target.name));
+            } else {
+              this.discardPile.push(card);
             }
           }
-        } else if (card.type === 'modifier') {
-          target.modifierCards.push(card);
-          target.handCards.push(card);
-          result.outcome = 'modifier';
-          this.log(window.t('logModifier', target.name, card.name));
-        } else if (card.type === 'action') {
-          if (card.action === 'second_chance' && !target.hasSecondChance) {
-            target.hasSecondChance = true;
-            target.secondChanceCard = card;
-            result.outcome = 'second_chance_gained';
-            this.log(window.t('logShieldGained', target.name));
-          } else {
-            this.discardPile.push(card);
-          }
+
+          this.lastDrawResult = result;
+          renderLocalState();
         }
 
-        this.lastDrawResult = result;
-        renderLocalState();
-      }
-
-      await new Promise(r => setTimeout(r, 800));
-      if (this.state === 'playing') {
-        this.advanceTurn();
+        await new Promise(r => setTimeout(r, 800));
+        if (this.state === 'playing') {
+          this.advanceTurn();
+          renderLocalState();
+        }
+      } finally {
+        this.isSequenceBusy = false;
         renderLocalState();
       }
     }
@@ -1427,6 +1442,7 @@
         turnDeadline: this.turnDeadline,
         recapDeadline: this.recapDeadline,
         serverTime: Date.now() / 1000,
+        isSequenceBusy: this.isSequenceBusy,
         players: this.players,
         lastCardDrawn: this.lastCardDrawn,
         lastDrawResult: this.lastDrawResult,
@@ -1797,6 +1813,8 @@
     });
 
     // 6. Dock the card into hand
+    clearTimeout(state.animSafetyTimer);
+    clearTimeout(state.animSafetyTimer);
     state.isCardFlyingInAir = false;
     state.animatingCard = null;
     state.animatingPlayerId = null;
@@ -1892,6 +1910,7 @@
       };
     });
 
+    clearTimeout(state.animSafetyTimer);
     state.isCardFlyingInAir = false;
     state.animatingCard = null;
     state.animatingPlayerId = null;
@@ -1957,7 +1976,8 @@
     let pendingOnlineFlight = null;
     if (!state.isLocalMode && room.lastDrawResult && room.lastDrawResult.card && room.lastDrawResult.card.id !== state.lastSeenDrawId) {
       state.lastSeenDrawId = room.lastDrawResult.card.id;
-      state.isCardFlyingInAir = false;
+      clearTimeout(state.animSafetyTimer);
+    state.isCardFlyingInAir = false;
       document.querySelectorAll('.flying-card-anim').forEach(node => node.remove());
       const out = room.lastDrawResult.outcome;
       if (out === 'busted') sfx.playBust();
@@ -1978,7 +1998,19 @@
           card: room.lastDrawResult.card,
           playerId: room.lastDrawResult.player
         };
+        clearTimeout(state.animSafetyTimer);
+        state.animSafetyTimer = setTimeout(() => {
+          if (state.animatingCard) {
+            state.animatingCard = null;
+            state.animatingPlayerId = null;
+            clearTimeout(state.animSafetyTimer);
+    state.isCardFlyingInAir = false;
+            if (state.isLocalMode) renderLocalState();
+            else if (state.roomData) renderGameTable(state.roomData);
+          }
+        }, 1500);
       } else {
+        clearTimeout(state.animSafetyTimer);
         state.animatingCard = null;
         state.animatingPlayerId = null;
       }
@@ -2087,7 +2119,8 @@
       syncHandCards(el.mySpecialCards, specialsToShow, false, myPlayer.id);
 
       // Controls
-      const canAct = isMyTurn && !myPlayer.isBot && !state.animatingCard;
+      const isBusy = !!room.isSequenceBusy;
+      const canAct = isMyTurn && !myPlayer.isBot && !state.animatingCard && !isBusy;
       el.btnHit.disabled = !canAct;
       el.btnStay.disabled = !canAct;
 
@@ -2098,6 +2131,9 @@
           el.hitSublabel.textContent = window.t('hitBtnSublabelNoOdds');
         }
         el.staySublabel.textContent = `${window.t('staySublabel')} (${myPlayer.roundScore})`;
+      } else if (isBusy) {
+        el.hitSublabel.textContent = window.t('dealingFlipThree');
+        el.staySublabel.textContent = window.t('waitingFlipThree');
       } else {
         el.hitSublabel.textContent = window.t('waitingTurn');
         el.staySublabel.textContent = window.t('locked');
@@ -3094,6 +3130,131 @@
       const paneId = btn.getAttribute('data-tab');
       document.getElementById(paneId).classList.add('active');
     });
+  });
+
+  // ============================================================================
+  // Export Match Log & Notifications
+  // ============================================================================
+
+  function showToast(msg) {
+    let t = document.getElementById('global-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'global-toast';
+      t.className = 'global-toast hidden';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.remove('hidden');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => {
+      t.classList.add('hidden');
+    }, 2800);
+  }
+
+  async function exportMatchLog() {
+    sfx.playClick();
+    let fullLog = [];
+    let roomCode = state.roomCode || 'LOCAL';
+    let targetScore = 200;
+    let roundNumber = 1;
+    let roomState = 'playing';
+    let players = [];
+
+    if (!state.isLocalMode && state.roomCode) {
+      try {
+        const resp = await fetch(`/api/room/${state.roomCode}/log`);
+        if (resp.ok) {
+          const data = await resp.json();
+          fullLog = data.fullLog || [];
+          targetScore = data.targetScore || targetScore;
+          roundNumber = data.roundNumber || roundNumber;
+          roomState = data.state || roomState;
+          players = data.players || [];
+        }
+      } catch (e) {
+        console.warn('Fetch room log failed, using local fallback', e);
+      }
+      if (fullLog.length === 0 && state.roomData) {
+        fullLog = (state.roomData.gameLog || []).map(l => `[--:--:--] ${l}`);
+        players = state.roomData.players || [];
+        roundNumber = state.roomData.roundNumber || roundNumber;
+        targetScore = state.roomData.targetScore || targetScore;
+        roomState = state.roomData.state || roomState;
+      }
+    } else if (state.localGame) {
+      fullLog = state.localGame.fullMatchLog && state.localGame.fullMatchLog.length ? state.localGame.fullMatchLog : (state.localGame.gameLog || []).map(l => `[--:--:--] ${l}`);
+      players = state.localGame.players || [];
+      roundNumber = state.localGame.roundNumber || roundNumber;
+      targetScore = state.localGame.targetScore || targetScore;
+      roomState = state.localGame.state || roomState;
+    }
+
+    if (!fullLog || fullLog.length === 0) {
+      alert(window.t('exportLogPrompt'));
+      return;
+    }
+
+    const now = new Date();
+    const timeStr = now.getFullYear() + '-' +
+      String(now.getMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getDate()).padStart(2, '0') + ' ' +
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0') + ':' +
+      String(now.getSeconds()).padStart(2, '0');
+
+    const dateFileStr = now.getFullYear() +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      String(now.getDate()).padStart(2, '0') + '_' +
+      String(now.getHours()).padStart(2, '0') +
+      String(now.getMinutes()).padStart(2, '0') +
+      String(now.getSeconds()).padStart(2, '0');
+
+    let report = '';
+    report += '================================================================================\n';
+    report += '                    FLIP 7 牌局完整对局记录 (Match Event Log)\n';
+    report += '================================================================================\n';
+    report += `房间编号: ${roomCode} (${state.isLocalMode ? '本地同屏模式' : '在线多人联机'})\n`;
+    report += `导出时间: ${timeStr}\n`;
+    report += `目标分数: ${targetScore} pts\n`;
+    report += `当前轮次: 第 ${roundNumber} 轮\n`;
+    report += `对局状态: ${roomState}\n\n`;
+
+    report += '【当前玩家阵容与积分详情】\n';
+    players.forEach((p, idx) => {
+      const isBotStr = p.isBot ? ` [AI-${p.botPersonality || 'bot'}]` : '';
+      const numCardsStr = p.numberCards && p.numberCards.length ? `[${p.numberCards.join(', ')}]` : '[]';
+      const scoreStr = `${p.totalScore || 0} pts`;
+      const roundStatusStr = p.roundStatus || 'active';
+      report += `  ${idx + 1}. ${p.avatar || '👤'} ${p.name}${isBotStr} - 累计: ${scoreStr} | 状态: ${roundStatusStr} | 本轮手牌: ${numCardsStr}\n`;
+    });
+
+    report += '\n================================================================================\n';
+    report += '【详细对局流水事件日志 (按时间递增)】\n';
+    report += '================================================================================\n';
+    fullLog.forEach(line => {
+      report += line + '\n';
+    });
+    report += '================================================================================\n';
+    report += '已成功导出。FLIP 7 Web 引擎生成。\n';
+    report += '================================================================================\n';
+
+    const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = `Flip7_GameLog_${roomCode}_${dateFileStr}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+
+    showToast(window.t('exportLogSuccess'));
+  }
+
+  ['btn-export-log', 'btn-export-log-header', 'btn-export-log-recap', 'btn-export-log-gameover'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', exportMatchLog);
   });
 
   // ============================================================================

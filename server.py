@@ -302,6 +302,8 @@ class Room:
         self.last_draw_result: Optional[Dict[str, Any]] = None
         self.pending_target: Optional[Dict[str, Any]] = None
         self.flip_three_queue: Optional[Dict[str, Any]] = None
+        self.is_sequence_busy: bool = False
+        self.full_match_log: List[str] = []
         self.game_log: List[str] = []
         self.winner: Optional[Player] = None
         self.clients: Dict[str, Any] = {} # player_id -> WebSocketClient
@@ -388,6 +390,11 @@ class Room:
         }
 
     def log(self, message: str):
+        ts = time.strftime("%H:%M:%S")
+        self.full_match_log.append(f"[{ts}] {message}")
+        if len(self.full_match_log) > 600:
+            self.full_match_log.pop(0)
+
         self.game_log.append(message)
         if len(self.game_log) > 30:
             self.game_log.pop(0)
@@ -510,6 +517,8 @@ class Room:
 
     def handle_hit(self, player: Player) -> Dict[str, Any]:
         """Draws a card for the player and evaluates outcomes."""
+        if self.is_sequence_busy:
+            return {"success": False, "error": "Dealing sequence in progress"}
         if player.round_status != "active":
             return {"success": False, "error": "Player is not active"}
             
@@ -637,6 +646,8 @@ class Room:
         return {"success": True, "result": result}
 
     def handle_stay(self, player: Player) -> Dict[str, Any]:
+        if self.is_sequence_busy:
+            return {"success": False, "error": "Dealing sequence in progress"}
         if player.round_status != "active":
             return {"success": False, "error": "Player is not active"}
             
@@ -689,86 +700,96 @@ class Room:
         elif act_type == "TARGET_FLIP_THREE":
             if act_card:
                 self.discard_pile.append(act_card)
-            self.log(f"⚡ {source_name} targeted {target_name} with FLIP THREE! Dealing 3 consecutive cards...")
+            self.log(f"⚡ {source_name} 对 {target_name} 发动了【连翻三张】！开始连续发牌...")
             self.pending_target = None
+            if self.timeout_task and not self.timeout_task.done():
+                self.timeout_task.cancel()
+            self.turn_deadline = None
+            self.is_sequence_busy = True
+            self.broadcast_state()
             # Queue 3 flips for target
             asyncio.create_task(self.run_flip_three_sequence(target))
 
     async def run_flip_three_sequence(self, target: Player):
         """Deals 3 cards to target sequentially with brief dramatic pauses."""
-        for flip_num in range(1, 4):
-            if self.state != "playing" or target.round_status != "active":
-                break
-            await asyncio.sleep(1.1)
-            self.log(f"💥 Flip Three #{flip_num} for {target.name}:")
-            # Draw card as target
-            card = self.draw_card()
-            self.last_card_drawn = card
-            result = {"card": card, "player": target.id, "flip_three_step": flip_num}
-            
-            if card["type"] == "number":
-                num = card["value"]
-                if num in target.number_cards:
-                    if target.has_second_chance:
-                        target.has_second_chance = False
-                        self.discard_pile.append(card)
-                        if hasattr(target, 'second_chance_card') and target.second_chance_card:
-                            self.discard_pile.append(target.second_chance_card)
-                            target.second_chance_card = None
-                        result["outcome"] = "shield_saved"
-                        self.log(f"❤️ Flip Three duplicate {num}! Extra life heart saved {target.name}!")
+        self.is_sequence_busy = True
+        try:
+            for flip_num in range(1, 4):
+                if self.state != "playing" or target.round_status != "active":
+                    break
+                await asyncio.sleep(1.1)
+                self.log(f"💥 Flip Three #{flip_num} for {target.name}:")
+                # Draw card as target
+                card = self.draw_card()
+                self.last_card_drawn = card
+                result = {"card": card, "player": target.id, "flip_three_step": flip_num}
+                
+                if card["type"] == "number":
+                    num = card["value"]
+                    if num in target.number_cards:
+                        if target.has_second_chance:
+                            target.has_second_chance = False
+                            self.discard_pile.append(card)
+                            if hasattr(target, 'second_chance_card') and target.second_chance_card:
+                                self.discard_pile.append(target.second_chance_card)
+                                target.second_chance_card = None
+                            result["outcome"] = "shield_saved"
+                            self.log(f"❤️ Flip Three duplicate {num}! Extra life heart saved {target.name}!")
+                        else:
+                            target.round_status = "busted"
+                            target.busted_card = card
+                            self.discard_pile.append(card)
+                            if hasattr(target, 'hand_cards') and target.hand_cards:
+                                self.discard_pile.extend(target.hand_cards)
+                                target.hand_cards = []
+                            if hasattr(target, 'second_chance_card') and target.second_chance_card:
+                                self.discard_pile.append(target.second_chance_card)
+                                target.second_chance_card = None
+                            result["outcome"] = "busted"
+                            self.log(f"💥 Flip Three duplicate {num}! {target.name} BUSTED!")
+                            self.last_draw_result = result
+                            self.broadcast_state()
+                            break
                     else:
-                        target.round_status = "busted"
-                        target.busted_card = card
-                        self.discard_pile.append(card)
-                        if hasattr(target, 'hand_cards') and target.hand_cards:
-                            self.discard_pile.extend(target.hand_cards)
-                            target.hand_cards = []
-                        if hasattr(target, 'second_chance_card') and target.second_chance_card:
-                            self.discard_pile.append(target.second_chance_card)
-                            target.second_chance_card = None
-                        result["outcome"] = "busted"
-                        self.log(f"💥 Flip Three duplicate {num}! {target.name} BUSTED!")
-                        self.last_draw_result = result
-                        self.broadcast_state()
-                        break
-                else:
-                    target.number_cards.append(num)
+                        target.number_cards.append(num)
+                        target.hand_cards.append(card)
+                        result["outcome"] = "safe_number"
+                        self.log(f"🃏 Flip Three #{flip_num}: Safe {num}!")
+                        if len(target.number_cards) >= 7:
+                            target.flipped_seven = True
+                            result["outcome"] = "flip_seven"
+                            self.log(f"🌟🎉 FLIP 7 during Flip Three! {target.name} flips 7! Round concludes!")
+                            self.last_draw_result = result
+                            self.broadcast_state()
+                            self.end_round(reason=f"{target.name} achieved FLIP 7!")
+                            self.broadcast_state()
+                            return
+                elif card["type"] == "modifier":
+                    target.modifier_cards.append(card)
                     target.hand_cards.append(card)
-                    result["outcome"] = "safe_number"
-                    self.log(f"🃏 Flip Three #{flip_num}: Safe {num}!")
-                    if len(target.number_cards) >= 7:
-                        target.flipped_seven = True
-                        result["outcome"] = "flip_seven"
-                        self.log(f"🌟🎉 FLIP 7 during Flip Three! {target.name} flips 7! Round concludes!")
-                        self.last_draw_result = result
-                        self.broadcast_state()
-                        self.end_round(reason=f"{target.name} achieved FLIP 7!")
-                        self.broadcast_state()
-                        return
-            elif card["type"] == "modifier":
-                target.modifier_cards.append(card)
-                target.hand_cards.append(card)
-                result["outcome"] = "modifier"
-                self.log(f"✨ Flip Three #{flip_num}: Modifier {card['name']}!")
-            elif card["type"] == "action":
-                # For action cards drawn during Flip 3, apply them simply:
-                if card["action"] == "second_chance" and not target.has_second_chance:
-                    target.has_second_chance = True
-                    target.second_chance_card = card
-                    result["outcome"] = "second_chance_gained"
-                    self.log(f"❤️ Flip Three #{flip_num}: Extra life gained!")
-                else:
-                    self.discard_pile.append(card)
-                    result["outcome"] = "action_discarded"
-                    self.log(f"Flip Three #{flip_num}: Action {card['name']} (auto-discarded during Flip 3).")
-                    
-            self.last_draw_result = result
-            self.broadcast_state()
-            
-        await asyncio.sleep(0.8)
-        if self.state == "playing":
-            self.advance_turn()
+                    result["outcome"] = "modifier"
+                    self.log(f"✨ Flip Three #{flip_num}: Modifier {card['name']}!")
+                elif card["type"] == "action":
+                    # For action cards drawn during Flip 3, apply them simply:
+                    if card["action"] == "second_chance" and not target.has_second_chance:
+                        target.has_second_chance = True
+                        target.second_chance_card = card
+                        result["outcome"] = "second_chance_gained"
+                        self.log(f"❤️ Flip Three #{flip_num}: Extra life gained!")
+                    else:
+                        self.discard_pile.append(card)
+                        result["outcome"] = "action_discarded"
+                        self.log(f"Flip Three #{flip_num}: Action {card['name']} (auto-discarded during Flip 3).")
+                        
+                self.last_draw_result = result
+                self.broadcast_state()
+                
+            await asyncio.sleep(0.8)
+            if self.state == "playing":
+                self.advance_turn()
+                self.broadcast_state()
+        finally:
+            self.is_sequence_busy = False
             self.broadcast_state()
 
     def calculate_deck_stats(self, for_player: Optional[Player]) -> Dict[str, Any]:
@@ -825,6 +846,7 @@ class Room:
             "turnDeadline": self.turn_deadline,
             "recapDeadline": self.recap_deadline,
             "serverTime": time.time(),
+            "isSequenceBusy": self.is_sequence_busy,
             "players": [p.to_dict() for p in self.players],
             "lastCardDrawn": self.last_card_drawn,
             "lastDrawResult": self.last_draw_result,
@@ -1388,7 +1410,7 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
     # 7. HIT
     elif mtype == "HIT":
         room = ROOMS.get(client.room_code or "")
-        if not room or room.state != "playing":
+        if not room or room.state != "playing" or room.is_sequence_busy:
             return
         cur = room.current_player()
         if not cur or cur.id != client.player_id:
@@ -1402,7 +1424,7 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
     # 8. STAY
     elif mtype == "STAY":
         room = ROOMS.get(client.room_code or "")
-        if not room or room.state != "playing":
+        if not room or room.state != "playing" or room.is_sequence_busy:
             return
         cur = room.current_player()
         if not cur or cur.id != client.player_id:
@@ -1500,6 +1522,41 @@ async def handle_websocket_message(client: WebSocketClient, payload_text: str):
 
 async def handle_http_request(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, method: str, path: str, headers: Dict[str, str]):
     clean_path = urllib.parse.unquote(path.split("?")[0])
+    if clean_path.startswith("/api/room/") and clean_path.endswith("/log"):
+        parts = clean_path.strip("/").split("/")
+        if len(parts) >= 4 and parts[1] == "room" and parts[3] == "log":
+            code = parts[2].upper()
+            room = ROOMS.get(code)
+            if room:
+                data = {
+                    "roomCode": room.code,
+                    "targetScore": room.target_score,
+                    "roundNumber": room.round_number,
+                    "state": room.state,
+                    "createdAt": room.created_at,
+                    "players": [p.to_dict() for p in room.players],
+                    "fullLog": room.full_match_log
+                }
+                body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+                header_lines = [
+                    "HTTP/1.1 200 OK",
+                    "Content-Type: application/json; charset=utf-8",
+                    f"Content-Length: {len(body)}",
+                    "Cache-Control: no-cache, no-store, must-revalidate",
+                    "Access-Control-Allow-Origin: *",
+                    "Connection: close",
+                    "\r\n"
+                ]
+                try:
+                    writer.write("\r\n".join(header_lines).encode("utf-8"))
+                    writer.write(body)
+                    await writer.drain()
+                except Exception:
+                    pass
+                finally:
+                    writer.close()
+                return
+
     if clean_path == "/api/rooms":
         body = json.dumps({"rooms": get_rooms_summary_list()}).encode("utf-8")
         header_lines = [
