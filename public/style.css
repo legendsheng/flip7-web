@@ -1818,12 +1818,14 @@ body {
   width: 320px;
   background: var(--surface-panel);
   border-left: 1px solid var(--surface-border);
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr);
+  grid-template-columns: 100%;
   height: 100%;
   max-height: 100%;
   min-height: 0;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 @media (max-width: 900px) {
@@ -1833,8 +1835,8 @@ body {
 }
 
 .sidebar-tabs {
+  grid-row: 1;
   display: flex;
-  flex-shrink: 0;
   height: 44px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--surface-border);
@@ -1861,25 +1863,34 @@ body {
 
 .tab-pane {
   display: none;
+  grid-row: 2;
   width: 100%;
-  height: calc(100% - 44px);
+  height: 100%;
   min-height: 0;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
-.tab-pane.active {
-  display: flex;
-  flex-direction: column;
+/* Tab 1: Live Feed / Match Logs */
+#tab-log.active {
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr);
+  grid-template-columns: 100%;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .log-toolbar {
+  grid-row: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0.35rem 0.85rem;
   background: rgba(0, 0, 0, 0.28);
   border-bottom: 1px solid var(--surface-border);
-  flex-shrink: 0;
   height: 34px;
   box-sizing: border-box;
 }
@@ -1916,13 +1927,13 @@ body {
 }
 
 .log-stream-wrapper {
+  grid-row: 2;
   position: relative;
   width: 100%;
-  height: calc(100% - 34px);
+  height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .btn-scroll-bottom {
@@ -1957,39 +1968,103 @@ body {
 }
 
 .log-stream {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   width: 100%;
   height: 100%;
-  max-height: 100%;
   min-height: 0;
   overflow-y: scroll;
   overflow-x: hidden;
   padding: 0.75rem 0.85rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  font-size: 0.82rem;
+  display: block;
   box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-color: rgba(245, 197, 24, 0.45) rgba(0, 0, 0, 0.25);
   -webkit-overflow-scrolling: touch;
 }
 
-.chat-messages {
+/* Tab 2: Scores */
+#tab-scores.active {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: 100%;
   width: 100%;
-  height: calc(100% - 48px);
-  max-height: calc(100% - 48px);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.scoreboard-list {
+  grid-row: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Tab 3: Chat - Strict Separation: Chat Records Above, Fixed Form Below */
+#tab-chat.active {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 48px;
+  grid-template-columns: 100%;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.chat-messages {
+  grid-row: 1;
+  width: 100%;
+  height: 100%;
   min-height: 0;
   overflow-y: scroll;
   overflow-x: hidden;
   padding: 0.75rem 0.85rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  font-size: 0.82rem;
+  display: block;
   box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-color: rgba(245, 197, 24, 0.45) rgba(0, 0, 0, 0.25);
   -webkit-overflow-scrolling: touch;
+}
+
+.chat-form {
+  grid-row: 2;
+  height: 48px;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border-top: 1px solid var(--surface-border);
+  background: rgba(13, 18, 23, 0.98);
+  z-index: 5;
+}
+
+.chat-form input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  padding: 0.45rem 0.65rem;
+  color: #fff;
+  font-size: 0.85rem;
+  outline: none;
 }
 
 .log-stream::-webkit-scrollbar,
@@ -2026,7 +2101,11 @@ body {
   border-left: 3px solid var(--felt-border);
   font-size: 0.78rem;
   word-break: break-word;
-  flex-shrink: 0;
+  margin-bottom: 0.45rem;
+}
+
+.log-item:last-child {
+  margin-bottom: 0;
 }
 
 .chat-bubble {
@@ -2034,7 +2113,11 @@ body {
   border-radius: 10px;
   padding: 0.45rem 0.65rem;
   word-break: break-word;
-  flex-shrink: 0;
+  margin-bottom: 0.45rem;
+}
+
+.chat-bubble:last-child {
+  margin-bottom: 0;
 }
 
 .chat-bubble .c-author {
@@ -2046,48 +2129,6 @@ body {
 .chat-bubble .c-emoji {
   font-size: 1.3rem;
   margin-left: 0.3rem;
-}
-
-.chat-form {
-  display: flex;
-  flex-shrink: 0;
-  height: 48px;
-  width: 100%;
-  box-sizing: border-box;
-  gap: 0.5rem;
-  padding: 0.45rem 0.65rem;
-  border-top: 1px solid var(--surface-border);
-  background: rgba(13, 18, 23, 0.98);
-  margin-top: auto;
-  z-index: 5;
-}
-
-.chat-form input {
-  flex: 1;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid var(--surface-border);
-  border-radius: 6px;
-  padding: 0.45rem 0.65rem;
-  color: #fff;
-  font-size: 0.85rem;
-  outline: none;
-}
-
-.scoreboard-list {
-  width: 100%;
-  height: 100%;
-  max-height: 100%;
-  min-height: 0;
-  box-sizing: border-box;
-  overflow-y: scroll;
-  overflow-x: hidden;
-  padding: 0.85rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-  -webkit-overflow-scrolling: touch;
 }
 
 .score-row {

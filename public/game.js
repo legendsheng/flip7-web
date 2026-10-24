@@ -2435,10 +2435,6 @@
   }
 
   let renderedLogs = [];
-  let userScrolledUpLog = false;
-  let userScrolledUpChat = false;
-  let userInteractedLog = false;
-  let userInteractedChat = false;
 
   function scrollLogToBottom() {
     if (!el.logStream) return;
@@ -2448,6 +2444,16 @@
   function scrollChatToBottom() {
     if (!el.chatMessages) return;
     el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+  }
+
+  function isLogNearBottom(threshold = 90) {
+    if (!el.logStream) return true;
+    return (el.logStream.scrollHeight - el.logStream.scrollTop - el.logStream.clientHeight) <= threshold;
+  }
+
+  function isChatNearBottom(threshold = 90) {
+    if (!el.chatMessages) return true;
+    return (el.chatMessages.scrollHeight - el.chatMessages.scrollTop - el.chatMessages.clientHeight) <= threshold;
   }
 
   function findNewLogs(oldLogs, newLogs) {
@@ -2507,12 +2513,10 @@
         el.logStream.appendChild(fragment);
         renderedLogs = [...logs];
 
-        if (!userScrolledUpLog) {
-          requestAnimationFrame(() => {
-            scrollLogToBottom();
-            setTimeout(scrollLogToBottom, 30);
-          });
-        }
+        requestAnimationFrame(() => {
+          scrollLogToBottom();
+          setTimeout(scrollLogToBottom, 30);
+        });
       } else {
         const newItems = findNewLogs(renderedLogs, logs);
         if (newItems === null) {
@@ -2528,13 +2532,12 @@
           el.logStream.appendChild(fragment);
           renderedLogs = [...logs];
 
-          if (!userScrolledUpLog) {
-            requestAnimationFrame(() => {
-              scrollLogToBottom();
-              setTimeout(scrollLogToBottom, 30);
-            });
-          }
+          requestAnimationFrame(() => {
+            scrollLogToBottom();
+            setTimeout(scrollLogToBottom, 30);
+          });
         } else if (newItems.length > 0) {
+          const shouldScroll = isLogNearBottom(90);
           const fragment = document.createDocumentFragment();
           for (let i = 0; i < newItems.length; i++) {
             const item = document.createElement('div');
@@ -2545,11 +2548,13 @@
           el.logStream.appendChild(fragment);
           renderedLogs = [...logs];
 
-          if (!userScrolledUpLog) {
+          if (shouldScroll) {
             requestAnimationFrame(() => {
               scrollLogToBottom();
               setTimeout(scrollLogToBottom, 30);
             });
+          } else if (el.btnScrollBottom) {
+            el.btnScrollBottom.classList.remove('hidden');
           }
         }
       }
@@ -2574,6 +2579,8 @@
 
   function renderChatMessage(msg) {
     if (!el.chatMessages) return;
+    const shouldScroll = isChatNearBottom(90);
+
     const bubble = document.createElement('div');
     bubble.className = 'chat-bubble';
     bubble.innerHTML = `
@@ -2588,7 +2595,7 @@
       el.chatMessages.removeChild(el.chatMessages.firstElementChild);
     }
 
-    if (!userScrolledUpChat) {
+    if (shouldScroll) {
       requestAnimationFrame(() => {
         scrollChatToBottom();
         setTimeout(scrollChatToBottom, 30);
@@ -3230,8 +3237,6 @@
       sendWS('CHAT', { message: text });
     }
     el.chatInput.value = '';
-    userScrolledUpChat = false;
-    userInteractedChat = false;
     requestAnimationFrame(() => {
       scrollChatToBottom();
       setTimeout(scrollChatToBottom, 30);
@@ -3248,16 +3253,12 @@
       if (targetPane) targetPane.classList.add('active');
 
       if (paneId === 'tab-log') {
-        userScrolledUpLog = false;
-        userInteractedLog = false;
         if (el.btnScrollBottom) el.btnScrollBottom.classList.add('hidden');
         requestAnimationFrame(() => {
           scrollLogToBottom();
           setTimeout(scrollLogToBottom, 30);
         });
       } else if (paneId === 'tab-chat') {
-        userScrolledUpChat = false;
-        userInteractedChat = false;
         requestAnimationFrame(() => {
           scrollChatToBottom();
           setTimeout(scrollChatToBottom, 30);
@@ -3392,45 +3393,21 @@
   });
 
   if (el.logStream) {
-    el.logStream.addEventListener('wheel', () => { userInteractedLog = true; }, { passive: true });
-    el.logStream.addEventListener('touchmove', () => { userInteractedLog = true; }, { passive: true });
-    el.logStream.addEventListener('pointerdown', () => { userInteractedLog = true; }, { passive: true });
     el.logStream.addEventListener('scroll', () => {
       const distFromBottom = el.logStream.scrollHeight - el.logStream.scrollTop - el.logStream.clientHeight;
       if (distFromBottom <= 60) {
-        userScrolledUpLog = false;
-        userInteractedLog = false;
         if (el.btnScrollBottom) el.btnScrollBottom.classList.add('hidden');
-      } else if (userInteractedLog) {
-        userScrolledUpLog = true;
-        if (el.btnScrollBottom && el.logStream.scrollHeight > el.logStream.clientHeight + 60) {
-          el.btnScrollBottom.classList.remove('hidden');
-        }
+      } else if (el.btnScrollBottom && el.logStream.scrollHeight > el.logStream.clientHeight + 60) {
+        el.btnScrollBottom.classList.remove('hidden');
       }
     });
   }
 
   if (el.btnScrollBottom) {
     el.btnScrollBottom.addEventListener('click', () => {
-      userScrolledUpLog = false;
-      userInteractedLog = false;
-      el.btnScrollBottom.classList.add('hidden');
+      if (el.btnScrollBottom) el.btnScrollBottom.classList.add('hidden');
       scrollLogToBottom();
-    });
-  }
-
-  if (el.chatMessages) {
-    el.chatMessages.addEventListener('wheel', () => { userInteractedChat = true; }, { passive: true });
-    el.chatMessages.addEventListener('touchmove', () => { userInteractedChat = true; }, { passive: true });
-    el.chatMessages.addEventListener('pointerdown', () => { userInteractedChat = true; }, { passive: true });
-    el.chatMessages.addEventListener('scroll', () => {
-      const distFromBottom = el.chatMessages.scrollHeight - el.chatMessages.scrollTop - el.chatMessages.clientHeight;
-      if (distFromBottom <= 60) {
-        userScrolledUpChat = false;
-        userInteractedChat = false;
-      } else if (userInteractedChat) {
-        userScrolledUpChat = true;
-      }
+      setTimeout(scrollLogToBottom, 30);
     });
   }
 
