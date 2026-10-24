@@ -264,30 +264,37 @@
               <div class="center-decks">
                 <!-- Draw Pile -->
                 <div class="deck-stack" id="draw-deck" title="摸牌堆剩余张数">
-                  <div class="card-back-stack"></div>
-                  <div class="card-back-stack"></div>
-                  <div class="deck-card-top card-back">
-                    <span class="deck-logo">FLIP 7</span>
-                    <span class="deck-count" id="deck-remaining-count">94</span>
+                  <div class="deck-card-box">
+                    <div class="card-back-stack"></div>
+                    <div class="card-back-stack"></div>
+                    <div class="deck-card-top card-back">
+                      <span class="deck-logo">FLIP 7</span>
+                      <span class="deck-count" id="deck-remaining-count">94</span>
+                    </div>
                   </div>
                   <div class="deck-label" data-i18n="drawDeckLabel">摸牌堆</div>
                 </div>
 
                 <!-- Last Drawn Card Active Display -->
-                <div class="drawn-card-slot" id="drawn-card-slot">
-                  <div class="card-placeholder" id="last-card-placeholder">
-                    <span data-i18n="awaitingFlip">等待翻牌</span>
+                <div class="deck-stack" id="drawn-card-stack">
+                  <div class="drawn-card-slot" id="drawn-card-slot">
+                    <div class="card-placeholder" id="last-card-placeholder">
+                      <span data-i18n="awaitingFlip">等待翻牌</span>
+                    </div>
+                    <div class="revealed-card-container hidden" id="revealed-card-container">
+                      <!-- 3D Card Face -->
+                    </div>
                   </div>
-                  <div class="revealed-card-container hidden" id="revealed-card-container">
-                    <!-- 3D Card Face -->
-                  </div>
+                  <div class="deck-label drawn-slot-label" data-i18n="flippedCardLabel">翻牌位</div>
                 </div>
 
                 <!-- Discard Pile -->
                 <div class="deck-stack" id="discard-deck" title="弃牌堆">
-                  <div class="discard-placeholder">
-                    <span data-i18n="discardLabel">弃牌堆</span>
-                    <span class="discard-count" id="discard-count">0</span>
+                  <div class="deck-card-box">
+                    <div class="discard-placeholder">
+                      <span data-i18n="discardLabel">弃牌堆</span>
+                      <span class="discard-count" id="discard-count">0</span>
+                    </div>
                   </div>
                   <div class="deck-label" data-i18n="discardLabel">弃牌堆</div>
                 </div>
