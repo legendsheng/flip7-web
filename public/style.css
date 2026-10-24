@@ -1861,7 +1861,6 @@ body {
 
 .tab-pane {
   display: none;
-  position: relative;
   width: 100%;
   height: calc(100% - 44px);
   min-height: 0;
@@ -1869,62 +1868,20 @@ body {
 }
 
 .tab-pane.active {
-  display: block;
-}
-
-#tab-log {
-  display: none;
-  position: relative;
-  width: 100%;
-  height: calc(100% - 44px);
-  min-height: 0;
-  overflow: hidden;
-}
-
-#tab-log.active {
-  display: block;
-}
-
-#tab-chat {
-  display: none;
-  position: relative;
-  width: 100%;
-  height: calc(100% - 44px);
-  min-height: 0;
-  overflow: hidden;
-}
-
-#tab-chat.active {
-  display: block;
-}
-
-#tab-scores {
-  display: none;
-  position: relative;
-  width: 100%;
-  height: calc(100% - 44px);
-  min-height: 0;
-  overflow: hidden;
-}
-
-#tab-scores.active {
-  display: block;
+  display: flex;
+  flex-direction: column;
 }
 
 .log-toolbar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 34px;
-  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0.35rem 0.85rem;
   background: rgba(0, 0, 0, 0.28);
   border-bottom: 1px solid var(--surface-border);
-  z-index: 10;
+  flex-shrink: 0;
+  height: 34px;
+  box-sizing: border-box;
 }
 
 .log-toolbar-title {
@@ -1959,11 +1916,13 @@ body {
 }
 
 .log-stream-wrapper {
-  position: absolute;
-  top: 34px;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  width: 100%;
+  height: calc(100% - 34px);
+  min-height: 0;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -1981,7 +1940,7 @@ body {
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.65), 0 0 10px var(--gold-glow);
   backdrop-filter: blur(8px);
-  z-index: 20;
+  z-index: 10;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   display: inline-flex;
   align-items: center;
@@ -1999,14 +1958,17 @@ body {
 }
 
 .log-stream {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 0;
   overflow-y: scroll;
   overflow-x: hidden;
   padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.82rem;
   box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-color: rgba(245, 197, 24, 0.45) rgba(0, 0, 0, 0.25);
@@ -2014,14 +1976,17 @@ body {
 }
 
 .chat-messages {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 48px;
+  width: 100%;
+  height: calc(100% - 48px);
+  min-height: 0;
+  flex: 1 1 0;
   overflow-y: scroll;
   overflow-x: hidden;
   padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.82rem;
   box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-color: rgba(245, 197, 24, 0.45) rgba(0, 0, 0, 0.25);
@@ -2062,11 +2027,7 @@ body {
   border-left: 3px solid var(--felt-border);
   font-size: 0.78rem;
   word-break: break-word;
-  margin-bottom: 0.45rem;
-}
-
-.log-item:last-child {
-  margin-bottom: 0;
+  flex-shrink: 0;
 }
 
 .chat-bubble {
@@ -2074,11 +2035,7 @@ body {
   border-radius: 10px;
   padding: 0.45rem 0.65rem;
   word-break: break-word;
-  margin-bottom: 0.45rem;
-}
-
-.chat-bubble:last-child {
-  margin-bottom: 0;
+  flex-shrink: 0;
 }
 
 .chat-bubble .c-author {
@@ -2093,19 +2050,17 @@ body {
 }
 
 .chat-form {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 48px;
-  box-sizing: border-box;
   display: flex;
-  align-items: center;
+  flex-shrink: 0;
+  height: 48px;
+  width: 100%;
+  box-sizing: border-box;
   gap: 0.5rem;
   padding: 0.45rem 0.65rem;
   border-top: 1px solid var(--surface-border);
   background: rgba(13, 18, 23, 0.98);
-  z-index: 10;
+  margin-top: auto;
+  z-index: 5;
 }
 
 .chat-form input {
@@ -2120,11 +2075,10 @@ body {
 }
 
 .scoreboard-list {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 0;
   box-sizing: border-box;
   overflow-y: scroll;
   overflow-x: hidden;
