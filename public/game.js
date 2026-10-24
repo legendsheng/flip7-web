@@ -856,6 +856,8 @@
   // Local Multiplayer Engine
   // ============================================================================
 
+  window.__flip7_state = state;
+
   class LocalFlip7Game {
     constructor(playerConfigs, targetScore = 200, showOdds = true) {
       this.targetScore = targetScore;
@@ -875,6 +877,9 @@
       this.winner = null;
       this.turnDeadline = null;
       this.inactivityTimer = null;
+      this.botTurnTimer = null;
+      this.botTargetTimer = null;
+      this.isProcessing = false;
 
       this.players = playerConfigs.map((cfg, i) => ({
         id: `local_p_${i}`,
@@ -969,6 +974,13 @@
 
     startNewRound() {
       clearTimeout(this.recapAutoTimer);
+      clearTimeout(this.inactivityTimer);
+      clearTimeout(this.botTurnTimer);
+      clearTimeout(this.botTargetTimer);
+      this.botTurnTimer = null;
+      this.botTargetTimer = null;
+      this.inactivityTimer = null;
+      this.isProcessing = false;
       this.recapDeadline = null;
       this.roundNumber += 1;
       this.state = 'playing';
@@ -1014,6 +1026,12 @@
 
     advanceTurn() {
       this.lastCardDrawn = null;
+      clearTimeout(this.botTurnTimer);
+      clearTimeout(this.botTargetTimer);
+      clearTimeout(this.inactivityTimer);
+      this.botTurnTimer = null;
+      this.botTargetTimer = null;
+      this.turnDeadline = null;
       const active = this.activePlayers();
       if (active.length === 0) {
         this.endRound();
@@ -1152,9 +1170,11 @@
     }
 
     stay() {
-      if (this.isSequenceBusy) return;
+      if (this.isSequenceBusy || this.isProcessing) return;
       const p = this.currentPlayer();
       if (!p || p.roundStatus !== 'active' || this.state !== 'playing') return;
+      clearTimeout(this.botTurnTimer);
+      this.botTurnTimer = null;
       p.roundStatus = 'stayed';
       const pts = this.computeScore(p);
       this.log(window.t('logStayed', p.name, pts));
@@ -1283,8 +1303,13 @@
     endRound(reason = '') {
       clearTimeout(this.inactivityTimer);
       clearTimeout(this.recapAutoTimer);
+      clearTimeout(this.botTurnTimer);
+      clearTimeout(this.botTargetTimer);
+      this.botTurnTimer = null;
+      this.botTargetTimer = null;
       this.turnDeadline = null;
       this.recapDeadline = null;
+      this.isProcessing = false;
       this.state = 'round_recap';
       this.players.forEach(p => {
         const pts = this.computeScore(p);
@@ -1333,8 +1358,10 @@
 
     checkBotTurn() {
       clearTimeout(this.inactivityTimer);
+      clearTimeout(this.botTurnTimer);
+      this.botTurnTimer = null;
       this.turnDeadline = null;
-      if (this.state !== 'playing') return;
+      if (this.state !== 'playing' || this.isProcessing || this.isSequenceBusy) return;
       const cur = this.currentPlayer();
       if (!cur || cur.roundStatus !== 'active') return;
       if (!cur.isBot && !cur.isAutoPlay) {
@@ -1342,8 +1369,10 @@
         return;
       }
 
-      setTimeout(() => {
-        if (this.state !== 'playing' || this.currentPlayer() !== cur || (!cur.isBot && !cur.isAutoPlay)) return;
+      this.botTurnTimer = setTimeout(() => {
+        this.botTurnTimer = null;
+        if (this.state !== 'playing' || this.isProcessing || this.isSequenceBusy) return;
+        if (this.currentPlayer() !== cur || (!cur.isBot && !cur.isAutoPlay)) return;
         const stats = this.getStats(cur);
         const pts = this.computeScore(cur);
         let shouldHit = true;
@@ -1376,8 +1405,10 @@
 
     checkBotTarget() {
       clearTimeout(this.inactivityTimer);
+      clearTimeout(this.botTargetTimer);
+      this.botTargetTimer = null;
       this.turnDeadline = null;
-      if (!this.pendingTarget) return;
+      if (!this.pendingTarget || this.isProcessing || this.isSequenceBusy) return;
       const source = this.players.find(p => p.id === this.pendingTarget.source_id);
       if (!source) return;
       if (!source.isBot && !source.isAutoPlay) {
@@ -1385,8 +1416,9 @@
         return;
       }
 
-      setTimeout(() => {
-        if (!this.pendingTarget || (!source.isBot && !source.isAutoPlay)) return;
+      this.botTargetTimer = setTimeout(() => {
+        this.botTargetTimer = null;
+        if (!this.pendingTarget || this.isProcessing || this.isSequenceBusy || (!source.isBot && !source.isAutoPlay)) return;
         const valid = this.pendingTarget.valid_targets;
         let targetId = valid[0];
 
@@ -1455,6 +1487,9 @@
     }
   }
 
+  window.__LocalFlip7Game = LocalFlip7Game;
+  window.__executeLocalHit = executeLocalHit;
+
   async function executeLocalHit(g) {
     if (!g || g.state !== 'playing' || g.isProcessing) return;
     g.isProcessing = true;
@@ -1521,9 +1556,12 @@
       if (!state.localGame || state.localGame !== g) return;
 
       if (g.pendingTarget) {
+        g.isProcessing = false;
+        g.checkBotTarget();
         return;
       }
 
+      g.isProcessing = false;
       if (g.state === 'playing') {
         g.advanceTurn();
       }
@@ -1532,16 +1570,13 @@
       state.animatingCard = null;
       state.animatingPlayerId = null;
       renderLocalState();
-      if (g && g.state === 'playing') {
-        if (g.pendingTarget) g.checkBotTarget();
-        else g.checkBotTurn();
-      }
     }
   }
 
   function handleLocalAction(type, data) {
     if (!state.localGame) return;
     const g = state.localGame;
+    if (g.isProcessing || g.isSequenceBusy) return;
     const cur = g.currentPlayer();
 
     if (type === 'HIT') {

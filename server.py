@@ -459,6 +459,9 @@ class Room:
     def start_new_round(self):
         if self.timeout_task and not self.timeout_task.done():
             self.timeout_task.cancel()
+        if self.bot_task and not self.bot_task.done():
+            self.bot_task.cancel()
+            self.bot_task = None
         self.recap_deadline = None
         self.turn_deadline = None
         self.round_number += 1
@@ -488,6 +491,9 @@ class Room:
     def end_round(self, reason: str = ""):
         if self.timeout_task and not self.timeout_task.done():
             self.timeout_task.cancel()
+        if self.bot_task and not self.bot_task.done():
+            self.bot_task.cancel()
+            self.bot_task = None
         self.turn_deadline = None
         self.recap_deadline = None
         self.state = "round_recap"
@@ -868,6 +874,9 @@ class Room:
     def schedule_bot_if_needed(self):
         if self.timeout_task and not self.timeout_task.done():
             self.timeout_task.cancel()
+        if self.bot_task and not self.bot_task.done():
+            self.bot_task.cancel()
+            self.bot_task = None
         self.turn_deadline = None
 
         if self.is_destroyed or self.state != "playing" or not self.has_connected_humans():
@@ -878,7 +887,7 @@ class Room:
             source = self.get_player(self.pending_target["source_id"])
             if source:
                 if source.is_bot or source.is_auto_play:
-                    asyncio.create_task(self.run_bot_target_action(source))
+                    self.bot_task = asyncio.create_task(self.run_bot_target_action(source))
                 else:
                     self.turn_deadline = time.time() + INACTIVITY_TIMEOUT_SEC
                     self.timeout_task = asyncio.create_task(
@@ -889,7 +898,7 @@ class Room:
         cur_p = self.current_player()
         if cur_p and cur_p.round_status == "active":
             if cur_p.is_bot or cur_p.is_auto_play:
-                asyncio.create_task(self.run_bot_turn(cur_p))
+                self.bot_task = asyncio.create_task(self.run_bot_turn(cur_p))
             else:
                 self.turn_deadline = time.time() + INACTIVITY_TIMEOUT_SEC
                 self.timeout_task = asyncio.create_task(
