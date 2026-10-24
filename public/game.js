@@ -898,7 +898,7 @@
 
     log(msg) {
       this.gameLog.push(msg);
-      if (this.gameLog.length > 50) this.gameLog.shift();
+      if (this.gameLog.length > 25) this.gameLog.shift();
     }
 
     buildDeck() {
@@ -2437,7 +2437,8 @@
 
   function renderSidebar(room) {
     if (room.gameLog) {
-      el.logStream.innerHTML = room.gameLog.map(logMsg => `
+      const recentLogs = room.gameLog.slice(-20);
+      el.logStream.innerHTML = recentLogs.map(logMsg => `
         <div class="log-item">${escapeHTML(logMsg)}</div>
       `).join('');
       el.logStream.scrollTop = el.logStream.scrollHeight;
@@ -3050,12 +3051,31 @@
   });
 
   // Reactions & Chat
+  const btnReactionsToggle = document.getElementById('btn-reactions-toggle');
+  if (btnReactionsToggle) {
+    btnReactionsToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (el.reactionsBar) {
+        el.reactionsBar.classList.toggle('expanded');
+      }
+    });
+  }
+
   document.querySelectorAll('.reaction-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const emoji = btn.getAttribute('data-emoji');
       sendWS('CHAT', { emoji });
       sfx.playClick();
+      if (el.reactionsBar) {
+        el.reactionsBar.classList.remove('expanded');
+      }
     });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (el.reactionsBar && !el.reactionsBar.contains(e.target)) {
+      el.reactionsBar.classList.remove('expanded');
+    }
   });
 
   el.chatForm.addEventListener('submit', (e) => {

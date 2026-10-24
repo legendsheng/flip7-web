@@ -389,7 +389,7 @@ class Room:
 
     def log(self, message: str):
         self.game_log.append(message)
-        if len(self.game_log) > 60:
+        if len(self.game_log) > 30:
             self.game_log.pop(0)
 
     def get_player(self, player_id: str) -> Optional[Player]:
@@ -830,7 +830,7 @@ class Room:
             "lastDrawResult": self.last_draw_result,
             "pendingTarget": self.pending_target,
             "deckStats": self.calculate_deck_stats(target_p),
-            "gameLog": self.game_log[-20:],
+            "gameLog": self.game_log[-18:],
             "winner": self.winner.to_dict() if self.winner else None
         }
 

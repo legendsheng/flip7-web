@@ -642,12 +642,16 @@ body {
 #screen-game {
   padding: 0;
   height: calc(100vh - 60px);
+  max-height: calc(100vh - 60px);
   position: relative;
+  overflow: hidden;
 }
 
 .game-layout {
   display: flex;
   height: 100%;
+  max-height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1800,6 +1804,10 @@ body {
   border-left: 1px solid var(--surface-border);
   display: flex;
   flex-direction: column;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 @media (max-width: 900px) {
@@ -1810,6 +1818,7 @@ body {
 
 .sidebar-tabs {
   display: flex;
+  flex-shrink: 0;
   border-bottom: 1px solid var(--surface-border);
 }
 
@@ -1836,6 +1845,9 @@ body {
   display: none;
   flex: 1;
   flex-direction: column;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1845,20 +1857,42 @@ body {
 
 .log-stream, .chat-messages {
   flex: 1;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
   overflow-y: auto;
-  padding: 0.85rem;
+  overflow-x: hidden;
+  padding: 0.75rem 0.85rem;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.45rem;
   font-size: 0.82rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.log-stream::-webkit-scrollbar,
+.chat-messages::-webkit-scrollbar,
+.scoreboard-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.log-stream::-webkit-scrollbar-thumb,
+.chat-messages::-webkit-scrollbar-thumb,
+.scoreboard-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
 }
 
 .log-item {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.035);
   border-radius: 8px;
-  padding: 0.5rem 0.65rem;
-  line-height: 1.4;
+  padding: 0.38rem 0.55rem;
+  line-height: 1.35;
   border-left: 3px solid var(--felt-border);
+  font-size: 0.78rem;
+  word-break: break-word;
+  flex-shrink: 0;
 }
 
 .chat-bubble {
@@ -1880,6 +1914,7 @@ body {
 
 .chat-form {
   display: flex;
+  flex-shrink: 0;
   gap: 0.5rem;
   padding: 0.65rem;
   border-top: 1px solid var(--surface-border);
@@ -1898,10 +1933,18 @@ body {
 }
 
 .scoreboard-list {
+  flex: 1;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 0.85rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 .score-row {
@@ -1935,9 +1978,26 @@ body {
   border-radius: 30px;
   padding: 0.35rem 0.65rem;
   display: flex;
+  align-items: center;
   gap: 0.4rem;
   backdrop-filter: blur(8px);
   z-index: 60;
+}
+
+.reactions-toggle-btn {
+  display: none;
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.reactions-emoji-list {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 @media (max-width: 900px) {
@@ -3625,18 +3685,77 @@ body[data-theme="celestial"] .game-card.card-num-7 {
     font-size: 0.64rem;
   }
 
-  /* Reactions bar moved to top-right of center area so it never blocks cards */
+  /* Reactions bar for mobile: docked nicely above player board in bottom-right, collapsible so it NEVER blocks opponents' cards */
   .reactions-floating-bar {
-    top: 112px;
-    right: 8px;
-    bottom: auto;
-    padding: 0.2rem 0.38rem;
-    gap: 0.18rem;
+    top: auto;
+    bottom: calc(180px + env(safe-area-inset-bottom, 0px));
+    right: 10px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    z-index: 70;
+  }
+
+  .reactions-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: rgba(13, 22, 19, 0.9);
+    border: 1px solid rgba(245, 197, 24, 0.35);
+    border-radius: 50%;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+    font-size: 1.15rem;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .reactions-toggle-btn:active {
+    transform: scale(0.92);
+  }
+
+  .reactions-floating-bar.expanded .reactions-toggle-btn {
+    background: rgba(245, 197, 24, 0.25);
+    border-color: var(--gold);
+    box-shadow: 0 0 12px var(--gold-glow);
+  }
+
+  .reactions-emoji-list {
+    display: none;
+    position: absolute;
+    bottom: 44px;
+    right: 0;
+    background: rgba(13, 22, 19, 0.96);
+    border: 1px solid rgba(245, 197, 24, 0.35);
+    border-radius: 22px;
+    padding: 0.25rem 0.5rem;
+    gap: 0.25rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(14px);
+    animation: popEmojiMenu 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .reactions-floating-bar.expanded .reactions-emoji-list {
+    display: flex;
   }
 
   .reaction-btn {
-    font-size: 0.95rem;
-    padding: 0.1rem;
+    font-size: 1.15rem;
+    padding: 0.2rem 0.25rem;
+  }
+
+  @keyframes popEmojiMenu {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.92);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 
   /* Modals on Mobile */
