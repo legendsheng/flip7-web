@@ -2435,20 +2435,55 @@
   }
 
   let renderedLogs = [];
+  let userScrolledUpLog = false;
+  let userScrolledUpChat = false;
+
+  function findNewLogs(oldLogs, newLogs) {
+    if (!oldLogs || oldLogs.length === 0) return newLogs;
+    if (!newLogs || newLogs.length === 0) return [];
+
+    // 1. Normal growth: oldLogs is a prefix of newLogs
+    if (newLogs.length >= oldLogs.length) {
+      let isPrefix = true;
+      for (let i = 0; i < oldLogs.length; i++) {
+        if (oldLogs[i] !== newLogs[i]) {
+          isPrefix = false;
+          break;
+        }
+      }
+      if (isPrefix) {
+        return newLogs.slice(oldLogs.length);
+      }
+    }
+
+    // 2. Buffer window shift: overlap between suffix of oldLogs and prefix of newLogs
+    const maxOverlap = Math.min(oldLogs.length, newLogs.length);
+    for (let overlap = maxOverlap; overlap > 0; overlap--) {
+      let match = true;
+      const oldStart = oldLogs.length - overlap;
+      for (let j = 0; j < overlap; j++) {
+        if (oldLogs[oldStart + j] !== newLogs[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) {
+        return newLogs.slice(overlap);
+      }
+    }
+
+    // 3. Complete desync or new game: return null to trigger fresh render
+    return null;
+  }
 
   function renderSidebar(room) {
     if (!room) return;
 
     if (el.logStream && room.gameLog && Array.isArray(room.gameLog)) {
       const logs = room.gameLog;
-      const scrollHeight = el.logStream.scrollHeight || 0;
-      const currentScrollTop = el.logStream.scrollTop || 0;
-      const clientHeight = el.logStream.clientHeight || 0;
-      // If user is within 60px of bottom, consider them at bottom
-      const isAtBottom = (scrollHeight - currentScrollTop - clientHeight) <= 60;
 
-      // 1. Initial render or DOM desync
       if (el.logStream.children.length === 0 || renderedLogs.length === 0) {
+        // Initial render
         el.logStream.innerHTML = '';
         const fragment = document.createDocumentFragment();
         for (let i = 0; i < logs.length; i++) {
@@ -2459,46 +2494,16 @@
         }
         el.logStream.appendChild(fragment);
         renderedLogs = [...logs];
-        el.logStream.scrollTop = el.logStream.scrollHeight;
-      } else if (logs.length > renderedLogs.length) {
-        // 2. Normal growth when buffer not full
-        const newItems = logs.slice(renderedLogs.length);
-        const fragment = document.createDocumentFragment();
-        for (let i = 0; i < newItems.length; i++) {
-          const item = document.createElement('div');
-          item.className = 'log-item';
-          item.textContent = newItems[i];
-          fragment.appendChild(item);
-        }
-        el.logStream.appendChild(fragment);
-        renderedLogs = [...logs];
 
-        if (isAtBottom) {
-          el.logStream.scrollTop = el.logStream.scrollHeight;
+        if (!userScrolledUpLog) {
+          requestAnimationFrame(() => {
+            if (el.logStream) el.logStream.scrollTop = el.logStream.scrollHeight;
+          });
         }
       } else {
-        // 3. Buffer full (server popped from front) or room reset
-        const lastRendered = renderedLogs[renderedLogs.length - 1];
-        const matchIdx = logs.lastIndexOf(lastRendered);
-
-        if (matchIdx !== -1 && matchIdx < logs.length - 1) {
-          // New logs arrived after the last known message!
-          const newItems = logs.slice(matchIdx + 1);
-          const fragment = document.createDocumentFragment();
-          for (let i = 0; i < newItems.length; i++) {
-            const item = document.createElement('div');
-            item.className = 'log-item';
-            item.textContent = newItems[i];
-            fragment.appendChild(item);
-          }
-          el.logStream.appendChild(fragment);
-          renderedLogs = [...logs];
-
-          if (isAtBottom) {
-            el.logStream.scrollTop = el.logStream.scrollHeight;
-          }
-        } else if (matchIdx === -1 && (logs.length < 10 || logs[logs.length - 1] !== lastRendered)) {
-          // Room reset or new match
+        const newItems = findNewLogs(renderedLogs, logs);
+        if (newItems === null) {
+          // Re-render completely if room reset or large desync
           el.logStream.innerHTML = '';
           const fragment = document.createDocumentFragment();
           for (let i = 0; i < logs.length; i++) {
@@ -2509,7 +2514,28 @@
           }
           el.logStream.appendChild(fragment);
           renderedLogs = [...logs];
-          el.logStream.scrollTop = el.logStream.scrollHeight;
+
+          if (!userScrolledUpLog) {
+            requestAnimationFrame(() => {
+              if (el.logStream) el.logStream.scrollTop = el.logStream.scrollHeight;
+            });
+          }
+        } else if (newItems.length > 0) {
+          const fragment = document.createDocumentFragment();
+          for (let i = 0; i < newItems.length; i++) {
+            const item = document.createElement('div');
+            item.className = 'log-item';
+            item.textContent = newItems[i];
+            fragment.appendChild(item);
+          }
+          el.logStream.appendChild(fragment);
+          renderedLogs = [...logs];
+
+          if (!userScrolledUpLog) {
+            requestAnimationFrame(() => {
+              if (el.logStream) el.logStream.scrollTop = el.logStream.scrollHeight;
+            });
+          }
         }
       }
 
@@ -2532,15 +2558,28 @@
   }
 
   function renderChatMessage(msg) {
+    if (!el.chatMessages) return;
     const bubble = document.createElement('div');
     bubble.className = 'chat-bubble';
     bubble.innerHTML = `
-      <span class="c-author">${msg.avatar} ${escapeHTML(msg.playerName)}:</span>
+      <span class="c-author">${msg.avatar || '👤'} ${escapeHTML(msg.playerName || 'Player')}:</span>
       ${msg.text ? `<span>${escapeHTML(msg.text)}</span>` : ''}
       ${msg.emoji ? `<span class="c-emoji">${msg.emoji}</span>` : ''}
     `;
     el.chatMessages.appendChild(bubble);
-    el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+
+    // Safeguard DOM nodes in chat
+    while (el.chatMessages.children.length > 300) {
+      el.chatMessages.removeChild(el.chatMessages.firstElementChild);
+    }
+
+    if (!userScrolledUpChat) {
+      requestAnimationFrame(() => {
+        if (el.chatMessages) {
+          el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+        }
+      });
+    }
 
     if (msg.emoji) spawnFloatingReaction(msg.emoji);
   }
@@ -3141,7 +3180,15 @@
   document.querySelectorAll('.reaction-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const emoji = btn.getAttribute('data-emoji');
-      sendWS('CHAT', { emoji });
+      if (state.isLocalMode) {
+        renderChatMessage({
+          avatar: state.profile.avatar || '👤',
+          playerName: state.profile.name || 'Player',
+          emoji
+        });
+      } else {
+        sendWS('CHAT', { emoji });
+      }
       sfx.playClick();
       if (el.reactionsBar) {
         el.reactionsBar.classList.remove('expanded');
@@ -3159,8 +3206,20 @@
     e.preventDefault();
     const text = el.chatInput.value.trim();
     if (!text) return;
-    sendWS('CHAT', { message: text });
+    if (state.isLocalMode) {
+      renderChatMessage({
+        avatar: state.profile.avatar || '👤',
+        playerName: state.profile.name || 'Player',
+        text
+      });
+    } else {
+      sendWS('CHAT', { message: text });
+    }
     el.chatInput.value = '';
+    userScrolledUpChat = false;
+    requestAnimationFrame(() => {
+      if (el.chatMessages) el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+    });
   });
 
   el.tabBtns.forEach(btn => {
@@ -3169,7 +3228,21 @@
       el.tabPanes.forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       const paneId = btn.getAttribute('data-tab');
-      document.getElementById(paneId).classList.add('active');
+      const targetPane = document.getElementById(paneId);
+      if (targetPane) targetPane.classList.add('active');
+
+      if (paneId === 'tab-log') {
+        userScrolledUpLog = false;
+        if (el.btnScrollBottom) el.btnScrollBottom.classList.add('hidden');
+        requestAnimationFrame(() => {
+          if (el.logStream) el.logStream.scrollTop = el.logStream.scrollHeight;
+        });
+      } else if (paneId === 'tab-chat') {
+        userScrolledUpChat = false;
+        requestAnimationFrame(() => {
+          if (el.chatMessages) el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+        });
+      }
     });
   });
 
@@ -3300,9 +3373,11 @@
 
   if (el.logStream) {
     el.logStream.addEventListener('scroll', () => {
-      const isNearBottom = (el.logStream.scrollHeight - el.logStream.scrollTop - el.logStream.clientHeight) < 60;
+      const distFromBottom = el.logStream.scrollHeight - el.logStream.scrollTop - el.logStream.clientHeight;
+      const isNearBottom = distFromBottom <= 80;
+      userScrolledUpLog = !isNearBottom;
       if (el.btnScrollBottom) {
-        if (!isNearBottom && el.logStream.scrollHeight > el.logStream.clientHeight + 80) {
+        if (userScrolledUpLog && el.logStream.scrollHeight > el.logStream.clientHeight + 100) {
           el.btnScrollBottom.classList.remove('hidden');
         } else {
           el.btnScrollBottom.classList.add('hidden');
@@ -3313,8 +3388,18 @@
 
   if (el.btnScrollBottom) {
     el.btnScrollBottom.addEventListener('click', () => {
-      el.logStream.scrollTo({ top: el.logStream.scrollHeight, behavior: 'smooth' });
+      userScrolledUpLog = false;
       el.btnScrollBottom.classList.add('hidden');
+      if (el.logStream) {
+        el.logStream.scrollTop = el.logStream.scrollHeight;
+      }
+    });
+  }
+
+  if (el.chatMessages) {
+    el.chatMessages.addEventListener('scroll', () => {
+      const distFromBottom = el.chatMessages.scrollHeight - el.chatMessages.scrollTop - el.chatMessages.clientHeight;
+      userScrolledUpChat = distFromBottom > 80;
     });
   }
 
