@@ -2434,16 +2434,18 @@
   let renderedLogCount = 0;
 
   function renderSidebar(room) {
-    if (room.gameLog && Array.isArray(room.gameLog)) {
+    if (!room) return;
+
+    if (el.logStream && room.gameLog && Array.isArray(room.gameLog)) {
       const logs = room.gameLog;
-      const scrollHeight = el.logStream.scrollHeight;
-      const currentScrollTop = el.logStream.scrollTop;
-      const clientHeight = el.logStream.clientHeight;
+      const scrollHeight = el.logStream.scrollHeight || 0;
+      const currentScrollTop = el.logStream.scrollTop || 0;
+      const clientHeight = el.logStream.clientHeight || 0;
       // If user is within 60px of bottom, consider them at bottom
       const isAtBottom = (scrollHeight - currentScrollTop - clientHeight) <= 60;
 
-      // Handle room reset or clear
-      if (logs.length < renderedLogCount) {
+      // Handle room reset, clear, or DOM desync
+      if (el.logStream.children.length === 0 || logs.length < renderedLogCount) {
         el.logStream.innerHTML = '';
         renderedLogCount = 0;
       }
@@ -2467,14 +2469,16 @@
       }
     }
 
-    const sorted = [...room.players].sort((a, b) => b.totalScore - a.totalScore);
-    el.scoreboardList.innerHTML = sorted.map((p, idx) => `
-      <div class="score-row">
-        <span class="rank">#${idx + 1}</span>
-        <span class="p-name">${p.avatar} ${escapeHTML(p.name)}</span>
-        <strong style="color:var(--gold);font-family:var(--font-mono)">${p.totalScore} pts</strong>
-      </div>
-    `).join('');
+    if (el.scoreboardList && room.players && Array.isArray(room.players)) {
+      const sorted = [...room.players].sort((a, b) => (b.totalScore || 0) - (a.totalScore || 0));
+      el.scoreboardList.innerHTML = sorted.map((p, idx) => `
+        <div class="score-row">
+          <span class="rank">#${idx + 1}</span>
+          <span class="p-name">${p.avatar || '👤'} ${escapeHTML(p.name || 'Player')}</span>
+          <strong style="color:var(--gold);font-family:var(--font-mono)">${p.totalScore || 0} pts</strong>
+        </div>
+      `).join('');
+    }
   }
 
   function renderChatMessage(msg) {
