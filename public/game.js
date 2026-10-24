@@ -2472,30 +2472,37 @@
     return '';
   }
 
-  let lastRenderedLogCount = -1;
-  let lastRenderedLastMsg = '';
+  let renderedLogCount = 0;
 
   function renderSidebar(room) {
-    if (room.gameLog) {
+    if (room.gameLog && Array.isArray(room.gameLog)) {
       const logs = room.gameLog;
-      const currentScrollTop = el.logStream.scrollTop;
       const scrollHeight = el.logStream.scrollHeight;
+      const currentScrollTop = el.logStream.scrollTop;
       const clientHeight = el.logStream.clientHeight;
-      // User is considered at the bottom if within 60px of bottom, or on first render
+      // If user is within 60px of bottom, consider them at bottom
       const isAtBottom = (scrollHeight - currentScrollTop - clientHeight) <= 60;
 
-      const latestMsg = logs.length ? logs[logs.length - 1] : '';
-      if (logs.length !== lastRenderedLogCount || latestMsg !== lastRenderedLastMsg) {
-        lastRenderedLogCount = logs.length;
-        lastRenderedLastMsg = latestMsg;
+      // Handle room reset or clear
+      if (logs.length < renderedLogCount) {
+        el.logStream.innerHTML = '';
+        renderedLogCount = 0;
+      }
 
-        el.logStream.innerHTML = logs.map(logMsg => `
-          <div class="log-item">${escapeHTML(logMsg)}</div>
-        `).join('');
+      if (logs.length > renderedLogCount) {
+        const wasEmpty = (renderedLogCount === 0);
+        const fragment = document.createDocumentFragment();
+        for (let i = renderedLogCount; i < logs.length; i++) {
+          const item = document.createElement('div');
+          item.className = 'log-item';
+          item.textContent = logs[i];
+          fragment.appendChild(item);
+        }
+        el.logStream.appendChild(fragment);
+        renderedLogCount = logs.length;
 
-        // If user was viewing latest logs or on initial load, auto-scroll to bottom.
-        // If user deliberately scrolled up to inspect previous turns, preserve their scroll position!
-        if (isAtBottom || currentScrollTop === 0) {
+        // Auto-scroll to bottom ONLY if user was already at the bottom or on initial load
+        if (isAtBottom || wasEmpty) {
           el.logStream.scrollTop = el.logStream.scrollHeight;
         }
       }

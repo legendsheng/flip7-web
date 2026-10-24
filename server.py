@@ -852,7 +852,7 @@ class Room:
             "lastDrawResult": self.last_draw_result,
             "pendingTarget": self.pending_target,
             "deckStats": self.calculate_deck_stats(target_p),
-            "gameLog": self.game_log[-18:],
+            "gameLog": self.game_log,
             "winner": self.winner.to_dict() if self.winner else None
         }
 
