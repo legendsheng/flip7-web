@@ -1329,9 +1329,9 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   position: relative;
-  padding: 2px 2px 3px 2px;
+  padding: 2px;
   background: rgba(0, 0, 0, 0.12);
   box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.2);
   z-index: 1;
@@ -1368,8 +1368,7 @@ body {
 }
 
 .corner-sym {
-  font-size: 0.65rem;
-  opacity: 0.95;
+  display: none !important;
 }
 
 /* Center Graphics */
@@ -1415,21 +1414,7 @@ body {
 
 /* Deck Count / Type Indicator at bottom of inner frame (Hand cards) */
 .card-deck-indicator {
-  font-size: 0.56rem;
-  font-weight: 800;
-  letter-spacing: 0.3px;
-  opacity: 0.9;
-  background: rgba(0, 0, 0, 0.4);
-  color: #fff;
-  padding: 1px 4px;
-  border-radius: 4px;
-  line-height: 1.1;
-  margin-top: auto;
-  margin-bottom: 1px;
-  z-index: 3;
-  border: 0.5px solid rgba(255, 255, 255, 0.22);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  white-space: nowrap;
+  display: none !important;
 }
 
 /* Large Center Revealed Card */
@@ -1443,7 +1428,8 @@ body {
 
 .game-card.lg .card-inner-frame {
   border-radius: 9px;
-  padding: 6px 0 0 0;
+  padding: 4px;
+  justify-content: center;
 }
 
 .game-card.lg .card-corner {
@@ -1451,7 +1437,7 @@ body {
 }
 
 .game-card.lg .corner-sym {
-  font-size: 1.05rem;
+  display: none !important;
 }
 
 .game-card.lg .card-center-num {
@@ -1464,9 +1450,9 @@ body {
   font-size: 3.1rem;
 }
 
+.card-watermark,
 .game-card.lg .card-watermark {
-  font-size: 4.2rem;
-  opacity: 0.25;
+  display: none !important;
 }
 
 .card-motif-ring {
@@ -1491,29 +1477,10 @@ body {
 }
 
 /* Strategic bottom banner for the large revealed card */
-.game-card.lg .card-bottom-banner {
-  width: 100%;
-  text-align: center;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  border-top: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 0 0 8px 8px;
-  padding: 4px 4px 5px 4px;
-  margin-top: auto;
-  z-index: 3;
-}
-
+.game-card.lg .card-bottom-banner,
+.card-bottom-banner,
 .card-desc-text {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
+  display: none !important;
 }
 
 /* ==========================================================================

@@ -2254,10 +2254,8 @@
   };
 
   function renderCardHTML(val, type, meta = {}) {
-    const isZh = (window.getCurrentLanguage() === 'zh');
     if (type === 'number') {
       const n = parseInt(val, 10);
-      const m = CARD_META[n] || { sym: '•', count: n };
       const isSeven = (n === 7);
 
       return `
@@ -2265,18 +2263,14 @@
           <div class="card-holo-sheen"></div>
           <div class="card-corner top-corner">
             <span class="corner-val">${n}</span>
-            <span class="corner-sym">${m.sym}</span>
           </div>
           <div class="card-inner-frame">
             <div class="card-center">
-              <span class="card-watermark">${m.sym}</span>
               <span class="card-center-num">${n}</span>
             </div>
-            <div class="card-deck-indicator">×${m.count}</div>
           </div>
           <div class="card-corner bottom-corner">
             <span class="corner-val">${n}</span>
-            <span class="corner-sym">${m.sym}</span>
           </div>
         </div>
       `;
@@ -2288,18 +2282,14 @@
             <div class="card-holo-sheen"></div>
             <div class="card-corner top-corner">
               <span class="corner-val">✖️2</span>
-              <span class="corner-sym">⚡</span>
             </div>
             <div class="card-inner-frame">
               <div class="card-center">
-                <span class="card-watermark">⚡</span>
                 <span class="card-center-num">✖️2</span>
               </div>
-              <div class="card-deck-indicator">${isZh ? '翻倍' : 'DOUBLE'}</div>
             </div>
             <div class="card-corner bottom-corner">
               <span class="corner-val">✖️2</span>
-              <span class="corner-sym">⚡</span>
             </div>
           </div>
         `;
@@ -2309,18 +2299,14 @@
             <div class="card-holo-sheen"></div>
             <div class="card-corner top-corner">
               <span class="corner-val">${val}</span>
-              <span class="corner-sym">✨</span>
             </div>
             <div class="card-inner-frame">
               <div class="card-center">
-                <span class="card-watermark">✨</span>
                 <span class="card-center-num">${val}</span>
               </div>
-              <div class="card-deck-indicator">${isZh ? '加分' : 'BONUS'}</div>
             </div>
             <div class="card-corner bottom-corner">
               <span class="corner-val">${val}</span>
-              <span class="corner-sym">✨</span>
             </div>
           </div>
         `;
@@ -2338,7 +2324,6 @@
               <div class="card-center">
                 <span class="card-action-icon">❤️</span>
               </div>
-              <div class="card-deck-indicator">${isZh ? '+1 命' : '+1 LIFE'}</div>
             </div>
             <div class="card-corner bottom-corner">
               <span class="corner-val">❤️</span>
@@ -2351,12 +2336,10 @@
   }
 
   function renderCardLargeHTML(card) {
-    const isZh = (window.getCurrentLanguage() === 'zh');
     if (!card) return '';
 
     if (card.type === 'number') {
       const n = card.value;
-      const m = CARD_META[n] || { sym: '•', count: n, descZh: `牌库共 ${n} 张`, descEn: `${n} in deck` };
       const isSeven = (n === 7);
 
       return `
@@ -2364,21 +2347,15 @@
           <div class="card-holo-sheen"></div>
           <div class="card-corner top-corner">
             <span class="corner-val">${n}</span>
-            <span class="corner-sym">${m.sym}</span>
           </div>
           <div class="card-inner-frame">
             <div class="card-center">
               <div class="card-motif-ring"></div>
-              <span class="card-watermark">${m.sym}</span>
               <span class="card-center-num">${n}</span>
-            </div>
-            <div class="card-bottom-banner">
-              <span class="card-desc-text">${isZh ? m.descZh : m.descEn}</span>
             </div>
           </div>
           <div class="card-corner bottom-corner">
             <span class="corner-val">${n}</span>
-            <span class="corner-sym">${m.sym}</span>
           </div>
         </div>
       `;
@@ -2390,21 +2367,15 @@
             <div class="card-holo-sheen"></div>
             <div class="card-corner top-corner">
               <span class="corner-val">✖️2</span>
-              <span class="corner-sym">⚡</span>
             </div>
             <div class="card-inner-frame">
               <div class="card-center">
                 <div class="card-motif-ring"></div>
-                <span class="card-watermark">⚡</span>
                 <span class="card-center-num">✖️2</span>
-              </div>
-              <div class="card-bottom-banner">
-                <span class="card-desc-text">${isZh ? '数字点数总和 × 2' : 'Doubles number sum!'}</span>
               </div>
             </div>
             <div class="card-corner bottom-corner">
               <span class="corner-val">✖️2</span>
-              <span class="corner-sym">⚡</span>
             </div>
           </div>
         `;
@@ -2414,21 +2385,15 @@
             <div class="card-holo-sheen"></div>
             <div class="card-corner top-corner">
               <span class="corner-val">${card.name}</span>
-              <span class="corner-sym">✨</span>
             </div>
             <div class="card-inner-frame">
               <div class="card-center">
                 <div class="card-motif-ring"></div>
-                <span class="card-watermark">✨</span>
                 <span class="card-center-num">${card.name}</span>
-              </div>
-              <div class="card-bottom-banner">
-                <span class="card-desc-text">${isZh ? `额外获得 +${card.value} 分` : `Adds +${card.value} bonus pts`}</span>
               </div>
             </div>
             <div class="card-corner bottom-corner">
               <span class="corner-val">${card.name}</span>
-              <span class="corner-sym">✨</span>
             </div>
           </div>
         `;
@@ -2436,16 +2401,13 @@
     } else if (card.type === 'action') {
       let cls = 'card-action-heart';
       let icon = '❤️';
-      let desc = isZh ? '抵消下一次重复爆牌 • 多一条命' : 'Absorbs your next bust (Extra Life)';
 
       if (card.action === 'freeze') {
         cls = 'card-action-freeze';
         icon = '❄️';
-        desc = isZh ? '指定玩家立即停牌锁定' : 'Forces target player to Stay';
       } else if (card.action === 'flip_three') {
         cls = 'card-action-flip-three';
         icon = '⚡';
-        desc = isZh ? '指定玩家必须连摸三张' : 'Forces target to flip 3 cards';
       }
 
       return `
@@ -2458,9 +2420,6 @@
             <div class="card-center card-center-action">
               <div class="card-motif-ring"></div>
               <span class="card-action-large-icon">${icon}</span>
-            </div>
-            <div class="card-bottom-banner">
-              <span class="card-desc-text">${desc}</span>
             </div>
           </div>
           <div class="card-corner bottom-corner">
