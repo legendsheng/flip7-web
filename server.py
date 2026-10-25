@@ -479,9 +479,9 @@ class Room:
                 self.discard_pile.append(p.second_chance_card)
             p.reset_for_round()
             
-        # First player to act is the one after the dealer
+        # First player to act in each round is the dealer
         if len(self.players) > 0:
-            self.current_turn_index = (self.dealer_index + 1) % len(self.players)
+            self.current_turn_index = self.dealer_index % len(self.players)
             
         dealer = self.players[self.dealer_index] if self.players else None
         dealer_name = dealer.name if dealer else "None"

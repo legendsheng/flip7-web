@@ -1010,7 +1010,8 @@
       // The draw deck (this.deck) is PRESERVED across rounds!
       // Only when this.deck runs out will drawCard() reshuffle this.discardPile.
 
-      this.currentTurnIndex = (this.dealerIndex + 1) % this.players.length;
+      // Each round begins with the dealer playing first
+      this.currentTurnIndex = this.dealerIndex % this.players.length;
       const dealerName = this.players[this.dealerIndex].name;
       this.log(window.t('logRoundBegins', this.roundNumber, dealerName));
       this.checkBotTurn();
